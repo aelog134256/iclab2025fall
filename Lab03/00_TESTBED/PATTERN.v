@@ -91,6 +91,9 @@ integer point_x[MAX_NUM_OF_POINT-1:0];
 integer point_y[MAX_NUM_OF_POINT-1:0];
 
 // Algorithm
+integer hull_x[MAX_NUM_OF_POINT*2-1:0];
+integer hull_y[MAX_NUM_OF_POINT*2-1:0];
+integer size_of_hull;
 integer sorted_index[MAX_NUM_OF_POINT-1:0];
 integer is_drop[MAX_NUM_OF_POINT-1:0];
 integer point_to_drop_num[MAX_NUM_OF_POINT-1:0]; 
@@ -180,6 +183,9 @@ begin
     for(i=0 ; i<MAX_NUM_OF_POINT ; i=i+1) begin
         point_x[i] = 'dx;
         point_y[i] = 'dx;
+        hull_x[i] = 'dx;
+        hull_y[i] = 'dx;
+        sorted_index[i] = 'dx;
         is_drop[i] = 0;
         point_to_drop_num[i] = 'dx;
     end
@@ -225,16 +231,62 @@ begin
     in_y = 'dx;
 end endtask
 
-task cal_task; begin
+task cal_task;
+    integer cur_num_of_points;
+    integer i;
+    integer k;
+    integer t;
+    integer new_index;
+begin
     // TODO : calculate the golden output
     sorted_points;
-    if(point_idx < 3) begin
+    cur_num_of_points = point_idx+1;
+    if(cur_num_of_points <= 3) begin
         gold_drop_num = 0;
         gold_x = 0;
         gold_y = 0;
     end
     else begin
+        k = 0;
+        for (i=0 ; i<2*MAX_NUM_OF_POINT ; i=i+1) begin
+            hull_x[i] = 0;
+            hull_y[i] = 0;
+        end
+        // Build lower hull
+        for(i=0 ; i<cur_num_of_points ; i++) begin
+            new_index = sorted_index[i];
+            while(k>=2 &&
+                calc_cross(hull_x[k-2], hull_y[k-2],
+                            hull_x[k-1], hull_y[k-1],
+                            point_x[new_index], point_y[new_index]) <= 0 ) begin
+                k=k-1;
+            end
+            hull_x[k] = point_x[new_index];
+            hull_y[k] = point_y[new_index];
+            k=k+1;
+        end
 
+        // Build upper hull
+        t=k+1;
+        for(i=cur_num_of_points-2 ; i>=0 ; i=i-1) begin
+            new_index = sorted_index[i];
+            while(k>=t &&
+                calc_cross(hull_x[k-2], hull_y[k-2],
+                            hull_x[k-1], hull_y[k-1],
+                            point_x[new_index], point_y[new_index]) <= 0 ) begin
+                k=k-1;
+            end
+            hull_x[k] = point_x[new_index];
+            hull_y[k] = point_y[new_index];
+            k=k+1;
+        end
+
+        size_of_hull = k-1;
+        if(DEBUG == 2) begin
+            for (i=0 ; i<k-1 ; i=i+1) begin
+                $display("%d %d", hull_x[i], hull_y[i]);
+            end
+        end
     end
     dump_point_to_html;
 end endtask
@@ -279,9 +331,9 @@ begin
             display_full_seperator;
             $display("      Output is wrong");
             $display("      Your / Gold");
-            $display("      Drop Num : %4d / %d4 ", drop_num, gold_drop_num);
-            $display("      Gold X   : %4d / %d4 ", out_x, gold_x);
-            $display("      Gold Y   : %4d / %d4 ", out_y, gold_y);
+            $display("      Drop Num : %4d / %4d ", drop_num, gold_drop_num);
+            $display("      Gold X   : %4d / %4d ", out_x, gold_x);
+            $display("      Gold Y   : %4d / %4d ", out_y, gold_y);
             display_full_seperator;
             repeat(5) @(negedge clk);
             $finish;
@@ -440,6 +492,17 @@ begin
     calc_cross = (xa-x0)*(yb-y0)-(ya-y0)*(xb-x0);
 end endfunction
 
+function integer is_colinear;
+    input [$bits(in_x)-1:0] x1;
+    input [$bits(in_x)-1:0] y1;
+    input [$bits(in_x)-1:0] x2;
+    input [$bits(in_x)-1:0] y2;
+    input [$bits(in_x)-1:0] x3;
+    input [$bits(in_x)-1:0] y3;
+begin
+    is_colinear = (((x2-x1)*(y3-y1)-(y2-y1)*(x3-x1)) == 0) ? 1 : 0;
+end endfunction
+
 //---------------------------------------------------------------------
 // Dump Utility
 //---------------------------------------------------------------------
@@ -514,7 +577,19 @@ begin
     $fdisplay(html_file, "<line x1='%0d' y1='%0d' x2='%0d' y2='%0d' stroke='#f3e309ff' stroke-width='1'/>",
         GRAPH_SHIFT/2, (panel_width-1)-(MAX_OF_POINT+GRAPH_SHIFT/2), MAX_OF_POINT+GRAPH_SHIFT/2, (panel_width-1)-(MAX_OF_POINT+GRAPH_SHIFT/2));
 
+    // Hull line
+    for(i=0 ; i<size_of_hull-1 ; i=i+1) begin
+        $fdisplay(html_file, "<line x1='%0d' y1='%0d' x2='%0d' y2='%0d' stroke='#0953f3ff' stroke-width='1'/>",
+            hull_x[i]+GRAPH_SHIFT/2, (panel_width-1)-(hull_y[i]+GRAPH_SHIFT/2), 
+            hull_x[i+1]+GRAPH_SHIFT/2, (panel_width-1)-(hull_y[i+1]+GRAPH_SHIFT/2));
+    end
+    $fdisplay(html_file, "<line x1='%0d' y1='%0d' x2='%0d' y2='%0d' stroke='#0953f3ff' stroke-width='1'/>",
+        hull_x[size_of_hull-1]+GRAPH_SHIFT/2, (panel_width-1)-(hull_y[size_of_hull-1]+GRAPH_SHIFT/2), 
+        hull_x[0]+GRAPH_SHIFT/2, (panel_width-1)-(hull_y[0]+GRAPH_SHIFT/2));
+
     $fdisplay(html_file, "</svg>");
+
+    //----------------------------------------------------------------------------------------
 
     // draw (0,0) (0,1023) (1023,0) (1023,1023)
     for(i=0 ; i<=MAX_OF_POINT ; i=i+MAX_OF_POINT) begin
@@ -535,11 +610,11 @@ begin
             $fwrite(html_file, "style='left:%4dpx; ", point_x[i]+GRAPH_SHIFT/2);
             $fwrite(html_file, "top:%4dpx; ", (panel_width-1) - (point_y[i]+GRAPH_SHIFT/2));
             if(i==point_idx)
-                $fwrite(html_file, "background:red;' ");
+                $fwrite(html_file, "background-color: #ff0000ff;' ");
             else if(is_drop[i] == 1)
-                $fwrite(html_file, "background:green;' ");
+                $fwrite(html_file, "background-color: #2bff00ff;' ");
             else if(is_drop[i] == 0)
-                $fwrite(html_file, "background:black;' ");
+                $fwrite(html_file, "background-color: #000;' ");
             $fwrite(html_file, "title='");
             $fwrite(html_file, "(x,y) = (%4d, %4d)\n(point_index, drop_index) = \n", point_x[i], point_y[i]);
             $fwrite(html_file, "(%3d, %3d)\n", i, point_to_drop_num[i]);
@@ -553,9 +628,6 @@ begin
             $fwrite(html_file, "</div>\n");
         end
     end
-
-    // draw line
-    // TODO:
 
     // HTML done
     $fwrite(html_file, "</div>\n</body>\n</html>");
