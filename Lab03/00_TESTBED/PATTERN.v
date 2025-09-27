@@ -40,7 +40,7 @@ input    [6:0]    drop_num;
 //=====================================================================
 // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 integer SEED = 5487;
-parameter DEBUG = 2; // show information in detail
+parameter DEBUG = 0; // show information in detail
 integer NUM_OF_RANDOM_PATTERN = 10; // Only supported in MODE = 1
 parameter INPUT_FILE_NAME = "../00_TESTBED/input.txt";
 parameter MODE = 0; // 0 : use input.txt, 1 : use random
@@ -59,7 +59,7 @@ integer file;
 integer total_pats;
 integer pat;
 integer total_points;
-integer point_idx;
+integer point_index;
 integer execution_lat;
 integer total_lat;
 real CYCLE = `CYCLE_TIME;
@@ -93,15 +93,16 @@ integer point_y[MAX_NUM_OF_POINT-1:0];
 // Algorithm
 integer hull_x[MAX_NUM_OF_POINT*2-1:0];
 integer hull_y[MAX_NUM_OF_POINT*2-1:0];
+integer hull_index[MAX_NUM_OF_POINT*2-1:0];
 integer size_of_hull;
 integer sorted_index[MAX_NUM_OF_POINT-1:0];
-integer is_drop[MAX_NUM_OF_POINT-1:0];
-integer point_to_drop_num[MAX_NUM_OF_POINT-1:0]; 
+integer sorted_index_large_index[MAX_NUM_OF_POINT-1:0];
+integer point_to_drop_index[MAX_NUM_OF_POINT-1:0]; // 'dx still in the graph
 
 // Output
 integer gold_drop_num;
-integer gold_x;
-integer gold_y;
+integer gold_drop_x[MAX_NUM_OF_POINT-1:0];
+integer gold_drop_y[MAX_NUM_OF_POINT-1:0];
 
 //=====================================================================
 //  CLOCK
@@ -118,10 +119,10 @@ task exe_task; begin
     reset_task;
     generate_new_pattern;
 
-    for (pat=0 ; pat<total_pats ; pat=pat+1) begin
+    for (pat=0 ; pat<1 ; pat=pat+1) begin
         clear_point_info;
         generate_new_point_set;
-        for (point_idx=0 ; point_idx<total_points ; point_idx=point_idx+1) begin
+        for (point_index=0 ; point_index<total_points ; point_index=point_index+1) begin
             input_task;
             cal_task;
             wait_task;
@@ -136,7 +137,7 @@ task generate_new_pattern;
     integer temp;
 begin
     if (MODE == 0) begin
-        file = $fopen(INPUT_FILE_NAME, "r");
+        file = $fopen(INPUT_FILE_NAME, "r"); 
         temp = $fscanf(file, "%d\n", total_pats);
     end
     else begin
@@ -185,10 +186,11 @@ begin
         point_y[i] = 'dx;
         hull_x[i] = 'dx;
         hull_y[i] = 'dx;
+        hull_index[i] = 'dx;
         sorted_index[i] = 'dx;
-        is_drop[i] = 0;
-        point_to_drop_num[i] = 'dx;
+        point_to_drop_index[i] = 'dx;
     end
+    size_of_hull = 0;
 end endtask
 
 task generate_new_point_set;
@@ -199,6 +201,7 @@ begin
     end
     else begin
         // TODO: generate the output randomly
+
     end
     repeat(($urandom(SEED) % 3) + 1) @(negedge clk);
 end endtask
@@ -212,15 +215,14 @@ begin
     else begin
         cur_x = ($urandom(SEED) % (MAX_OF_POINT+1));
         cur_y = ($urandom(SEED) % (MAX_OF_POINT+1));
-        
     end
-    point_x[point_idx] = cur_x;
-    point_y[point_idx] = cur_y;
+    point_x[point_index] = cur_x;
+    point_y[point_index] = cur_y;
 
     // Propagate
     @(negedge clk);
     in_valid = 1;
-    pt_num = point_idx == 0 ? total_points : 'dx;
+    pt_num = point_index == 0 ? total_points : 'dx;
     in_x = cur_x;
     in_y = cur_y;
     @(negedge clk);
@@ -233,60 +235,17 @@ end endtask
 
 task cal_task;
     integer cur_num_of_points;
-    integer i;
-    integer k;
-    integer t;
-    integer new_index;
 begin
-    // TODO : calculate the golden output
     sorted_points;
-    cur_num_of_points = point_idx+1;
+    cur_num_of_points = point_index+1;
     if(cur_num_of_points <= 3) begin
         gold_drop_num = 0;
-        gold_x = 0;
-        gold_y = 0;
+        gold_drop_x[0] = 0;
+        gold_drop_y[0] = 0;
     end
     else begin
-        k = 0;
-        for (i=0 ; i<2*MAX_NUM_OF_POINT ; i=i+1) begin
-            hull_x[i] = 0;
-            hull_y[i] = 0;
-        end
-        // Build lower hull
-        for(i=0 ; i<cur_num_of_points ; i++) begin
-            new_index = sorted_index[i];
-            while(k>=2 &&
-                calc_cross(hull_x[k-2], hull_y[k-2],
-                            hull_x[k-1], hull_y[k-1],
-                            point_x[new_index], point_y[new_index]) <= 0 ) begin
-                k=k-1;
-            end
-            hull_x[k] = point_x[new_index];
-            hull_y[k] = point_y[new_index];
-            k=k+1;
-        end
-
-        // Build upper hull
-        t=k+1;
-        for(i=cur_num_of_points-2 ; i>=0 ; i=i-1) begin
-            new_index = sorted_index[i];
-            while(k>=t &&
-                calc_cross(hull_x[k-2], hull_y[k-2],
-                            hull_x[k-1], hull_y[k-1],
-                            point_x[new_index], point_y[new_index]) <= 0 ) begin
-                k=k-1;
-            end
-            hull_x[k] = point_x[new_index];
-            hull_y[k] = point_y[new_index];
-            k=k+1;
-        end
-
-        size_of_hull = k-1;
-        if(DEBUG == 2) begin
-            for (i=0 ; i<k-1 ; i=i+1) begin
-                $display("%d %d", hull_x[i], hull_y[i]);
-            end
-        end
+        update_hull;
+        discard_points;
     end
     dump_point_to_html;
 end endtask
@@ -327,13 +286,14 @@ begin
             repeat(5) @(negedge clk);
             $finish;
         end
-        if (drop_num !== gold_drop_num || out_x !== gold_x || out_y !== gold_y) begin
+        if (drop_num !== gold_drop_num || out_x !== gold_drop_x[_out_lat] || out_y !== gold_drop_y[_out_lat]) begin
             display_full_seperator;
             $display("      Output is wrong");
             $display("      Your / Gold");
+            $display("      Output Index : %4d", _out_lat);
             $display("      Drop Num : %4d / %4d ", drop_num, gold_drop_num);
-            $display("      Gold X   : %4d / %4d ", out_x, gold_x);
-            $display("      Gold Y   : %4d / %4d ", out_y, gold_y);
+            $display("      Drop X   : %4d / %4d ", out_x, gold_drop_x[_out_lat]);
+            $display("      Drop Y   : %4d / %4d ", out_y, gold_drop_y[_out_lat]);
             display_full_seperator;
             repeat(5) @(negedge clk);
             $finish;
@@ -354,7 +314,7 @@ begin
     end
 
     total_lat = total_lat + execution_lat;
-    $display("%0sPASS PATTERN NO.%4d/Point NO.%4d (%4d, %4d), %0sCycles: %3d%0s",txt_blue_prefix, pat, point_idx, cur_x, cur_y, txt_green_prefix, execution_lat, reset_color);
+    $display("%0sPASS PATTERN NO.%4d/Point NO.%4d (%4d, %4d), %0sCycles: %3d%0s",txt_blue_prefix, pat, point_index, cur_x, cur_y, txt_green_prefix, execution_lat, reset_color);
 end endtask
 
 task pass_task; begin
@@ -430,23 +390,28 @@ task sorted_points;
     integer k;
     integer new_index1;
     integer new_index2;
+    integer compare_value;
     integer tmp;
 begin
     // Clear
     for(i=0 ; i<MAX_NUM_OF_POINT ; i=i+1) begin
         sorted_index[i] = 'dx;
+        sorted_index_large_index[i] = 'dx;
     end
-    for(i=0 ; i<=point_idx ; i=i+1) begin
+    for(i=0 ; i<=point_index ; i=i+1) begin
         sorted_index[i] = i;
+        sorted_index_large_index[i] = i;
     end
 
     // Sorted
-    for(i=0; i<point_idx; i=i+1) begin
-        for(j=0; j<point_idx-i; j=j+1) begin
+    for(i=0; i<point_index; i=i+1) begin
+        for(j=0; j<point_index-i; j=j+1) begin
             new_index1 = sorted_index[j];
             new_index2 = sorted_index[j+1];
-            if(compare(point_x[new_index1], point_y[new_index1],
-                        point_x[new_index2], point_y[new_index2]) == 'd1) begin
+            compare_value = compare(point_x[new_index1], point_y[new_index1],
+                                point_x[new_index2], point_y[new_index2]);
+            if(compare_value === 1 ||
+                ((point_x[new_index1] == point_x[new_index2] && point_y[new_index1] == point_y[new_index2]) && new_index1 > new_index2) ) begin
                 tmp = sorted_index[j];
                 sorted_index[j] = sorted_index[j+1];
                 sorted_index[j+1] = tmp;
@@ -454,13 +419,230 @@ begin
         end
     end
 
+    for(i=0; i<point_index; i=i+1) begin
+        for(j=0; j<point_index-i; j=j+1) begin
+            new_index1 = sorted_index_large_index[j];
+            new_index2 = sorted_index_large_index[j+1];
+            compare_value = compare(point_x[new_index1], point_y[new_index1],
+                                point_x[new_index2], point_y[new_index2]);
+            if(compare_value === 1 ||
+                ((point_x[new_index1] == point_x[new_index2] && point_y[new_index1] == point_y[new_index2]) && new_index1 < new_index2) ) begin
+                tmp = sorted_index_large_index[j];
+                sorted_index_large_index[j] = sorted_index_large_index[j+1];
+                sorted_index_large_index[j+1] = tmp;
+            end
+        end
+    end
+
+
+            
+
     if(DEBUG == 2) begin
-        $display("Sorted points by index");
-        for(i=0; i<=point_idx; i=i+1) begin
+        $display("[Sorted points by index]");
+        for(i=0; i<=point_index; i=i+1) begin
             $display("sorted #%4d (%4d, %4d) -> original (%4d)",
                 i, point_x[sorted_index[i]], point_y[sorted_index[i]], sorted_index[i]);
         end
+        $display("");
+
+        $display("[Sorted points by index (large index first)]");
+        for(i=0; i<=point_index; i=i+1) begin
+            $display("sorted #%4d (%4d, %4d) -> original (%4d)",
+                i, point_x[sorted_index_large_index[i]], point_y[sorted_index_large_index[i]], sorted_index_large_index[i]);
+        end
+        $display("");
     end 
+end endtask
+
+// Update hull
+task update_hull;
+    integer cur_num_of_points;
+    integer i;
+    integer j;
+    integer k;
+    integer t;
+    integer new_index;
+
+    integer size_of_orig_hull;
+    integer orig_hull_x[MAX_NUM_OF_POINT*2-1:0];
+    integer orig_hull_y[MAX_NUM_OF_POINT*2-1:0];
+    integer orig_hull_index[MAX_NUM_OF_POINT*2-1:0];
+    integer min_orig_index[MAX_NUM_OF_POINT*2-1:0];
+    integer valid[MAX_NUM_OF_POINT*2-1:0];
+begin
+    cur_num_of_points = point_index+1;
+    k = 0;
+    for(i=0 ; i<MAX_NUM_OF_POINT*2 ; i=i+1) begin
+        orig_hull_x[i] = 'dx;
+        orig_hull_y[i] = 'dx;
+        orig_hull_index[i] = 'dx;
+    end
+
+    // Build lower hull
+    for(i=0 ; i<cur_num_of_points ; i++) begin
+        new_index = sorted_index[i];
+        while(k>=2 &&
+            calc_cross(orig_hull_x[k-2], orig_hull_y[k-2],
+                        orig_hull_x[k-1], orig_hull_y[k-1],
+                        point_x[new_index], point_y[new_index]) <= 0 ) begin
+            orig_hull_x[k-1] = 'dx;
+            orig_hull_y[k-1] = 'dx;
+            k=k-1;
+        end
+        orig_hull_x[k] = point_x[new_index];
+        orig_hull_y[k] = point_y[new_index];
+        k=k+1;
+    end
+
+    // Build upper hull
+    t=k+1;
+    for(i=cur_num_of_points-2 ; i>=0 ; i=i-1) begin
+        new_index = sorted_index_large_index[i];
+        while(k>=t &&
+            calc_cross(orig_hull_x[k-2], orig_hull_y[k-2],
+                        orig_hull_x[k-1], orig_hull_y[k-1],
+                        point_x[new_index], point_y[new_index]) <= 0 ) begin
+            orig_hull_x[k-1] = 'dx;
+            orig_hull_y[k-1] = 'dx;
+            k=k-1;
+        end
+        orig_hull_x[k] = point_x[new_index];
+        orig_hull_y[k] = point_y[new_index];
+        k=k+1;
+    end
+    size_of_orig_hull = k;
+
+    // Clear duplicated hull coordinates
+    for (i=0; i<size_of_orig_hull; i=i+1) begin
+        min_orig_index[i] = 'h0fffffff;
+    end
+    for (i=0 ; i<size_of_orig_hull ; i=i+1) begin
+        for (j=0 ; j<cur_num_of_points ; j=j+1) begin
+            new_index = sorted_index[j];
+            if ((point_x[new_index] === orig_hull_x[i]) &&
+                (point_y[new_index] === orig_hull_y[i])) begin
+                if (new_index < min_orig_index[i]) begin
+                    min_orig_index[i] = new_index;
+                end
+            end
+        end
+        if (min_orig_index[i] === 'dx) begin
+            min_orig_index[i] = -1;
+        end
+    end
+
+    for (i=0; i<size_of_orig_hull; i=i+1) begin
+        valid[i] = 1;
+    end
+
+    for (i=0 ; i<size_of_orig_hull ; i=i+1) begin
+        if (valid[i]) begin
+            for (j=i+1 ; j<size_of_orig_hull ; j=j+1) begin
+                if (valid[j]) begin
+                    if ((orig_hull_x[i] == orig_hull_x[j]) &&
+                        (orig_hull_y[i] == orig_hull_y[j])) begin
+                        if (min_orig_index[i] == -1 && min_orig_index[j] == -1) begin
+                            valid[j] = 0;
+                        end
+                        else if (min_orig_index[i] == -1) begin
+                            valid[i] = 0;
+                        end
+                        else if (min_orig_index[j] == -1) begin
+                            valid[j] = 0;
+                        end
+                        else begin
+                            if (min_orig_index[i] <= min_orig_index[j]) begin
+                                valid[j] = 0;
+                            end else begin
+                                valid[i] = 0;
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    // Update hull_index
+    for (i=0 ; i<size_of_orig_hull ; i=i+1) begin
+        if (valid[i]) begin
+            orig_hull_index[i] = min_orig_index[i];
+        end
+        else begin
+            orig_hull_index[i] = -1;
+        end
+    end
+
+    size_of_hull = 0;
+    for (i=0 ; i<size_of_orig_hull ; i=i+1) begin
+        if (valid[i]) begin
+            hull_x[size_of_hull] = orig_hull_x[i];
+            hull_y[size_of_hull] = orig_hull_y[i];
+            hull_index[size_of_hull] = orig_hull_index[i];
+            size_of_hull = size_of_hull + 1;
+        end
+    end
+
+
+    if(DEBUG == 2) begin
+        $display("[Original convex hull]");
+        $display("Num of hulls : %4d", size_of_orig_hull);
+        for (i=0 ; i<size_of_orig_hull ; i=i+1) begin
+            $display("#%4d (%4d, %4d) - index : %4d", i, orig_hull_x[i], orig_hull_y[i], orig_hull_index[i]);
+        end
+        $display("");
+
+        $display("[Non-duplicated convex hull]");
+        $display("Num of hulls : %4d", size_of_hull);
+        for (i=0 ; i<size_of_hull ; i=i+1) begin
+            $display("#%4d (%4d, %4d) - index : %4d", i, hull_x[i], hull_y[i], hull_index[i]);
+        end
+        $display("");
+    end
+end endtask;
+
+// Discard points
+task discard_points;
+    integer i;
+    integer j;
+    integer is_hull;
+begin
+    if(DEBUG==2) begin
+        $display("[Dicard points]");
+        for(i=0; i<=point_index; i=i+1) begin
+            if(DEBUG==2) begin
+                $display("#%4d (%4d, %4d) -> is in convex hull %4d / is in the hull index %4d", i, point_x[i], point_y[i],
+                    is_in_convex_hull(point_x[i], point_y[i]), index_is_already_in_hull_list(i));
+            end
+        end
+        $display("");
+    end
+    gold_drop_num = 0;
+    for(i=0 ; i<MAX_NUM_OF_POINT ; i=i+1) begin
+        gold_drop_x[i] = 'dx;
+        gold_drop_y[i] = 'dx;
+    end
+    for(i=0; i<=point_index; i=i+1) begin
+        if(index_is_already_in_hull_list(i) === 0) begin
+            if(point_to_drop_index[i] === 'dx) begin
+                if(is_in_convex_hull(point_x[i], point_y[i])) begin
+                    point_to_drop_index[i] = point_index;
+                    gold_drop_x[gold_drop_num] = point_x[i];
+                    gold_drop_y[gold_drop_num] = point_y[i];
+                    gold_drop_num = gold_drop_num + 1;
+                end
+            end
+        end
+    end
+
+    if(DEBUG == 2) begin
+        $display("[Drop index for points]");
+        $display("Num of drop : %4d", gold_drop_num);
+        for(i=0; i<=point_index; i=i+1) begin
+            $display("#%4d (%4d, %4d) -> drop index : %4d", i, point_x[i], point_y[i], point_to_drop_index[i]);
+        end
+        $display("");
+    end
 end endtask
 
 // Sorted by x firstly, then y
@@ -503,6 +685,61 @@ begin
     is_colinear = (((x2-x1)*(y3-y1)-(y2-y1)*(x3-x1)) == 0) ? 1 : 0;
 end endfunction
 
+function integer point_is_already_in_hull_list;
+    input [$bits(in_x)-1:0] x;
+    input [$bits(in_x)-1:0] y;
+    integer i;
+begin
+    point_is_already_in_hull_list = 0;
+    for (i=0 ; i<MAX_NUM_OF_POINT*2 ; i=i+1) begin
+        if (hull_x[i] === x && hull_y[i] === y) begin
+            point_is_already_in_hull_list = 1;
+        end
+    end
+end endfunction
+
+function integer index_is_already_in_hull_list;
+    input integer in_index;
+    integer i;
+begin
+    index_is_already_in_hull_list = 0;
+    for(i=0; i<size_of_hull; i=i+1) begin
+        if(hull_index[i] === in_index) begin
+            index_is_already_in_hull_list = 1;
+        end
+    end
+end endfunction
+
+function integer is_in_convex_hull;
+    input [$bits(in_x)-1:0] x;
+    input [$bits(in_x)-1:0] y;
+
+    integer stop_flag;
+    integer i;
+    integer sign;
+    integer next_index;
+    integer cross_value;
+begin
+    stop_flag = 0;
+    sign = 0;
+    is_in_convex_hull = 1;
+    for(int i=0 ; i<size_of_hull ; i=i+1) begin
+        if(stop_flag == 1) begin
+            next_index = (i+1)%size_of_hull;
+            cross_value = calc_cross(
+                hull_x[i], hull_y[i],
+                hull_x[next_index], hull_y[next_index],
+                x, y
+            );
+            if(cross_value != 0)begin
+                if(sign == 0) sign = (cross_value > 0) ? 1 : -1;
+                else if((cross_value>0 && sign==-1) || (cross_value<0 && sign==1))
+                    is_in_convex_hull = 0;
+            end
+        end
+    end
+end endfunction
+
 //---------------------------------------------------------------------
 // Dump Utility
 //---------------------------------------------------------------------
@@ -517,13 +754,36 @@ begin
     // TODO:
     // Improve the readability for the coordinates
     index_file = $fopen("graph_index.txt", "w");
-    html_file = $fopen("graph.html", "w");
-    panel_width = (MAX_OF_POINT+1)+GRAPH_SHIFT;
 
     // txt
     $fdisplay(index_file, "red : current point");
-    $fdisplay(index_file, "green : drop node (drop_index shouldn't be unknown)");
+    $fdisplay(index_file, "green : current drop node (drop_index shouldn't be unknown)");
     $fdisplay(index_file, "( <x>, <y> ) : <point_index> <drop_index>\n");
+
+    // txt
+    for(i=0 ; i<=point_index ; i=i+1) begin
+        if(point_x[i] !== 'dx && point_y[i] !== 'dx) begin
+            if(point_to_drop_index[i] === 'dx)
+                $fdisplay(index_file, "( %4d, %4d ) : %4d    x", point_x[i], point_y[i], i);
+            else
+                $fdisplay(index_file, "( %4d, %4d ) : %4d %4d", point_x[i], point_y[i], i, point_to_drop_index[i]);
+        end
+    end
+
+    $fdisplay(index_file, "");
+    $fdisplay(index_file, "Drop Num : %4d", gold_drop_num);
+    $fdisplay(index_file, "( <drop x>, <drop y> )\n");
+    for(i=0 ; i<gold_drop_num ; i=i+1) begin
+        $fdisplay(index_file, "( %4d, %4d )", gold_drop_x[i], gold_drop_y[i]);
+    end
+
+
+
+    $fclose(index_file);
+
+    // HTML file
+    html_file = $fopen("graph.html", "w");
+    panel_width = (MAX_OF_POINT+1)+GRAPH_SHIFT;
     // HTML header
     $fwrite(html_file, "<!DOCTYPE html>\n<html>\n<head>\n");
     $fwrite(html_file, "<style>\n");
@@ -538,30 +798,17 @@ begin
     // 0~1023 => add GRAPH_SHIFT
     $fwrite(html_file, "<div style='position:relative; width:%5dpx; height:%5dpx; border:1px solid black;'>\n", panel_width, panel_width);
 
-    // Collect the index of the points which have the same coordinates
-    for(i=0 ; i<MAX_NUM_OF_POINT ; i=i+1) begin
-        is_dump[i] = 0;
-    end
-
-    // txt
-    for(i=0 ; i<=point_idx ; i=i+1) begin
-        if(point_x[i] !== 'dx && point_y[i] !== 'dx) begin
-            $fdisplay(index_file, "( %4d, %4d ) : %4d %4d", point_x[i], point_y[i], i, point_to_drop_num[i]);
-        end
-    end
-
     // HTML graph
-
     // grid (z-index:0)
     $fdisplay(html_file, "<svg width='%d' height='%d' style='position:absolute; left:0; top:0; z-index:0;'>", panel_width, panel_width);
     for (i=0; i<=panel_width; i=i+ROW_PX_OF_GRID) begin
         // vertical
-        $fdisplay(html_file, "<line x1='%0d' y1='0' x2='%0d' y2='%d' stroke='#ddd' stroke-width='1'/>",
+        $fdisplay(html_file, "<line x1='%0d' y1='0' x2='%0d' y2='%d' stroke='#a09d9dff' stroke-width='1'/>",
             i+GRAPH_SHIFT/2, i+GRAPH_SHIFT/2, panel_width);
     end
     for (i=0; i<=panel_width; i=i+COL_PX_OF_GRID) begin
         // horizontal
-        $fdisplay(html_file, "<line x1='0' y1='%0d' x2='%d' y2='%0d' stroke='#ddd' stroke-width='1'/>",
+        $fdisplay(html_file, "<line x1='0' y1='%0d' x2='%d' y2='%0d' stroke='#a09d9dff' stroke-width='1'/>",
             (panel_width-1)-(i+GRAPH_SHIFT/2), panel_width, (panel_width-1) - (i+GRAPH_SHIFT/2));
     end
 
@@ -603,24 +850,33 @@ begin
         end
     end
 
+    // Collect the index of the points which have the same coordinates
+    for(i=0 ; i<MAX_NUM_OF_POINT ; i=i+1) begin
+        is_dump[i] = 0;
+    end
     // draw point
-    for(i=0 ; i<=point_idx ; i=i+1) begin
+    for(i=0 ; i<=point_index ; i=i+1) begin
         if(point_x[i] !== 'dx && point_y[i] !== 'dx && is_dump[i] === 0) begin
             $fwrite(html_file, "<div class='point' ");
             $fwrite(html_file, "style='left:%4dpx; ", point_x[i]+GRAPH_SHIFT/2);
             $fwrite(html_file, "top:%4dpx; ", (panel_width-1) - (point_y[i]+GRAPH_SHIFT/2));
-            if(i==point_idx)
-                $fwrite(html_file, "background-color: #ff0000ff;' ");
-            else if(is_drop[i] == 1)
+            // if(i==point_index)
+            if(point_x[i]===cur_x && point_y[i]===cur_y) begin
+                $fwrite(html_file, "background-color: #ff0000ff; ");
+                $fwrite(html_file, "opacity: 0.5;' ");
+            end
+            else if(point_to_drop_index[i] === point_index)
                 $fwrite(html_file, "background-color: #2bff00ff;' ");
-            else if(is_drop[i] == 0)
-                $fwrite(html_file, "background-color: #000;' ");
+            else if(point_to_drop_index[i] < point_index)
+                $fwrite(html_file, "background-color: #696969ff;' ");
+            else if(point_to_drop_index[i] === 'dx)
+                $fwrite(html_file, "background-color: #000000ff;' ");
             $fwrite(html_file, "title='");
             $fwrite(html_file, "(x,y) = (%4d, %4d)\n(point_index, drop_index) = \n", point_x[i], point_y[i]);
-            $fwrite(html_file, "(%3d, %3d)\n", i, point_to_drop_num[i]);
-            for(j=i+1 ; j<=point_idx ; j=j+1) begin
+            $fwrite(html_file, "(%3d, %3d)\n", i, point_to_drop_index[i]);
+            for(j=i+1 ; j<=point_index ; j=j+1) begin
                 if(point_x[i] == point_x[j] && point_y[i] == point_y[j]) begin
-                    $fwrite(html_file, "(%3d, %3d)\n", j, point_to_drop_num[j]);
+                    $fwrite(html_file, "(%3d, %3d)\n", j, point_to_drop_index[j]);
                     is_dump[j] = 1;
                 end
             end
@@ -633,7 +889,6 @@ begin
     $fwrite(html_file, "</div>\n</body>\n</html>");
 
     $fclose(html_file);
-    $fclose(index_file);
 end endtask
 
 //---------------------------------------------------------------------
@@ -645,6 +900,5 @@ task display_full_seperator; begin
     // Half
     // $system("cols=`tput cols`; half=$((cols/2-6)); printf '%*s\\n' $half ''");
 end endtask
-
 
 endmodule
