@@ -119,7 +119,7 @@ task exe_task; begin
     reset_task;
     generate_new_pattern;
 
-    for (pat=0 ; pat<1 ; pat=pat+1) begin
+    for (pat=0 ; pat<total_pats ; pat=pat+1) begin
         clear_point_info;
         generate_new_point_set;
         for (point_index=0 ; point_index<total_points ; point_index=point_index+1) begin
@@ -275,7 +275,14 @@ end endtask
 task check_task;
     integer _max_out_lat;
     integer _out_lat;
+
+    integer i;
+    integer j;
+    integer your_drop_x[MAX_NUM_OF_POINT-1:0];
+    integer your_drop_y[MAX_NUM_OF_POINT-1:0];
+    integer is_check[MAX_NUM_OF_POINT-1:0];
 begin
+    // Output point should be in any order
     _out_lat = 0;
     _max_out_lat = gold_drop_num == 0 ? 1 : gold_drop_num;
     while(out_valid === 1) begin
@@ -286,14 +293,11 @@ begin
             repeat(5) @(negedge clk);
             $finish;
         end
-        if (drop_num !== gold_drop_num || out_x !== gold_drop_x[_out_lat] || out_y !== gold_drop_y[_out_lat]) begin
+        your_drop_x[_out_lat] = out_x;
+        your_drop_y[_out_lat] = out_y;
+        if (drop_num !== gold_drop_num) begin
             display_full_seperator;
-            $display("      Output is wrong");
-            $display("      Your / Gold");
-            $display("      Output Index : %4d", _out_lat);
-            $display("      Drop Num : %4d / %4d ", drop_num, gold_drop_num);
-            $display("      Drop X   : %4d / %4d ", out_x, gold_drop_x[_out_lat]);
-            $display("      Drop Y   : %4d / %4d ", out_y, gold_drop_y[_out_lat]);
+            $display("      Output signal : drop_num is not correct");
             display_full_seperator;
             repeat(5) @(negedge clk);
             $finish;
@@ -302,15 +306,43 @@ begin
             display_full_seperator;
             $display("      Output signal : drop_num is zero, the out_x and out_y must be zero");
             display_full_seperator;
+            repeat(5) @(negedge clk);
+            $finish;
         end
         _out_lat = _out_lat + 1;
         @(negedge clk);
+    end
+
+    for(i=0 ; i<gold_drop_num ; i=i+1) begin
+        is_check[i] = 0;
+    end
+    for(i=0 ; i<gold_drop_num ; i=i+1) begin
+        for(j=0 ; j<gold_drop_num ; j=j+1) begin
+            if(your_drop_x[i] === gold_drop_x[j] ||
+                your_drop_y[i] === gold_drop_y[j]) begin
+                is_check[j] = 1;
+            end
+        end
+    end
+    for(i=0 ; i<gold_drop_num ; i=i+1) begin
+        if(is_check[i] === 0) begin
+            display_full_seperator;
+            $display("      Output is wrong");
+            $display("      You lose the point");
+            $display("      Drop X   : %4d", gold_drop_x[i]);
+            $display("      Drop Y   : %4d", gold_drop_y[i]);
+            display_full_seperator;
+            repeat(5) @(negedge clk);
+            $finish;
+        end
     end
 
     if (_out_lat < _max_out_lat) begin
         display_full_seperator;
         $display("      Out cycles is less than %-2d at %-12d ps ", _max_out_lat, $time*1000);
         display_full_seperator;
+        repeat(5) @(negedge clk);
+        $finish;
     end
 
     total_lat = total_lat + execution_lat;
@@ -479,7 +511,7 @@ begin
     end
 
     // Build lower hull
-    for(i=0 ; i<cur_num_of_points ; i++) begin
+    for(i=0 ; i<cur_num_of_points ; i=i+1) begin
         new_index = sorted_index[i];
         while(k>=2 &&
             calc_cross(orig_hull_x[k-2], orig_hull_y[k-2],
@@ -633,6 +665,10 @@ begin
                 end
             end
         end
+    end
+    if(gold_drop_num === 0) begin
+        gold_drop_x[gold_drop_num] = 0;
+        gold_drop_y[gold_drop_num] = 0;
     end
 
     if(DEBUG == 2) begin
