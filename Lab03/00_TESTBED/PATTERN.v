@@ -39,11 +39,11 @@ input    [6:0]    drop_num;
 //   PARAMETER & INTEGER DECLARATION
 //=====================================================================
 // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-integer SEED = 5487;
-parameter DEBUG = 0; // show information in detail
-integer NUM_OF_RANDOM_PATTERN = 10; // Only supported in MODE = 1
+integer SEED = 54875487;
+parameter DEBUG = 1; // show information in detail
+integer NUM_OF_RANDOM_PATTERN = 1000; // Only supported in MODE = 1
 parameter INPUT_FILE_NAME = "../00_TESTBED/input.txt";
-parameter MODE = 0; // 0 : use input.txt, 1 : use random
+parameter MODE = 1; // 0 : use input.txt, 1 : use random
 
 // Graph
 parameter GRAPH_SHIFT = 100;
@@ -53,7 +53,9 @@ parameter COL_PX_OF_GRID = 100;
 
 parameter MAX_EXECUTION_CYCLE = 1000;
 parameter MAX_NUM_OF_POINT = 500;
+parameter MIN_NUM_OF_POINT = 4;
 parameter MAX_OF_POINT = 2**$bits(in_x)-1;
+parameter MAX_SIDE_OF_CONVEX_HULL = 128;
 
 integer file;
 integer total_pats;
@@ -164,6 +166,7 @@ task reset_task; begin
     in_x = 'dx;
     in_y = 'dx;
 
+    void'($urandom(SEED));
     total_lat = 0;
 
     #(CYCLE/2.0) rst_n = 0;
@@ -200,21 +203,60 @@ begin
         temp = $fscanf(file, "%d\n", total_points);
     end
     else begin
-        // TODO: generate the output randomly
-
+        total_points = ($urandom() % (MAX_NUM_OF_POINT-MIN_NUM_OF_POINT+1)) + MIN_NUM_OF_POINT;
+        if (DEBUG) begin
+            display_full_seperator;
+            $display("      For #%4d - start to generate #%4d of points", pat, total_points);
+            display_full_seperator;
+        end
     end
-    repeat(($urandom(SEED) % 3) + 1) @(negedge clk);
+    repeat(($urandom() % 3) + 1) @(negedge clk);
 end endtask
 
 task input_task;
     integer temp;
+    integer cur_num_of_points;
 begin
     // Store
     if (MODE==0)
         temp = $fscanf(file, "%d %d\n", cur_x, cur_y);
     else begin
-        cur_x = ($urandom(SEED) % (MAX_OF_POINT+1));
-        cur_y = ($urandom(SEED) % (MAX_OF_POINT+1));
+        cur_num_of_points = point_index+1;
+        cur_x = ($urandom() % (MAX_OF_POINT + 1));
+        cur_y = ($urandom() % (MAX_OF_POINT + 1));
+        point_x[point_index] = cur_x;
+        point_y[point_index] = cur_y;
+        
+        if(cur_num_of_points === 3) begin
+            while(
+                is_colinear(
+                    point_x[0], point_y[0],
+                    point_x[1], point_y[1],
+                    point_x[2], point_y[2]
+                )
+            ) begin
+                if(DEBUG == 2) begin
+                    $display("      The first 3 point are colinear -- regenerate");
+                end
+                cur_x = ($urandom() % (MAX_OF_POINT + 1));
+                cur_y = ($urandom() % (MAX_OF_POINT + 1));
+                point_x[point_index] = cur_x;
+                point_y[point_index] = cur_y;
+            end
+        end
+        else if(cur_num_of_points > 3) begin
+            sorted_points;
+            update_hull;
+            while(size_of_hull > MAX_SIDE_OF_CONVEX_HULL) begin
+                if(DEBUG == 2) begin
+                    $display("      # of side of the convex hull is larger than %4d --- regenerate", MAX_SIDE_OF_CONVEX_HULL);
+                end
+                cur_x = ($urandom() % (MAX_OF_POINT + 1));
+                cur_y = ($urandom() % (MAX_OF_POINT + 1));
+                point_x[point_index] = cur_x;
+                point_y[point_index] = cur_y;
+            end
+        end
     end
     point_x[point_index] = cur_x;
     point_y[point_index] = cur_y;
@@ -247,7 +289,6 @@ begin
         update_hull;
         discard_points;
     end
-    dump_point_to_html;
 end endtask
 
 task wait_task; begin
@@ -327,6 +368,7 @@ begin
     for(i=0 ; i<gold_drop_num ; i=i+1) begin
         if(is_check[i] === 0) begin
             display_full_seperator;
+            dump_point_to_html;
             $display("      Output is wrong");
             $display("      You lose the point");
             $display("      Drop X   : %4d", gold_drop_x[i]);
