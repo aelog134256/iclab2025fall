@@ -338,6 +338,7 @@ begin
         your_drop_y[_out_lat] = out_y;
         if (drop_num !== gold_drop_num) begin
             display_full_seperator;
+            dump_point_to_html;
             $display("      Output signal : drop_num is not correct");
             display_full_seperator;
             repeat(5) @(negedge clk);
@@ -345,6 +346,7 @@ begin
         end
         if (drop_num === 0 && (out_x !== 0 || out_y !== 0)) begin
             display_full_seperator;
+            dump_point_to_html;
             $display("      Output signal : drop_num is zero, the out_x and out_y must be zero");
             display_full_seperator;
             repeat(5) @(negedge clk);
