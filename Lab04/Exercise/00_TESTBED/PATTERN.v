@@ -169,19 +169,13 @@ reg[inst_sig_width+inst_exp_width:0]  _max_pool  [NUM_OF_IMAGE_TASK0-1:0][SIZE_O
 wire[inst_sig_width+inst_exp_width:0] _activation_w[NUM_OF_IMAGE_TASK0-1:0][SIZE_OF_ACTIVATE-1:0][SIZE_OF_ACTIVATE-1:0];
 reg[inst_sig_width+inst_exp_width:0]  _activation  [NUM_OF_IMAGE_TASK0-1:0][SIZE_OF_ACTIVATE-1:0][SIZE_OF_ACTIVATE-1:0];
 //
-wire[inst_sig_width+inst_exp_width:0] _fully1_w[NUM_OF_FULLY1-1:0][SIZE_OF_FULLY1-1:0];
-reg[inst_sig_width+inst_exp_width:0]  _fully1  [NUM_OF_FULLY1-1:0][SIZE_OF_FULLY1-1:0];
-wire[inst_sig_width+inst_exp_width:0] _fully1_sum_w[NUM_OF_FULLY1-1:0];
-reg[inst_sig_width+inst_exp_width:0]  _fully1_sum  [NUM_OF_FULLY1-1:0];
-wire[inst_sig_width+inst_exp_width:0] _fully1_sum_activated_w[NUM_OF_FULLY1-1:0];
-reg[inst_sig_width+inst_exp_width:0]  _fully1_sum_activated  [NUM_OF_FULLY1-1:0];
+wire[inst_sig_width+inst_exp_width:0] _fully1_w[NUM_OF_FULLY1-1:0];
+reg[inst_sig_width+inst_exp_width:0]  _fully1  [NUM_OF_FULLY1-1:0];
+wire[inst_sig_width+inst_exp_width:0] _fully1_activated_w[NUM_OF_FULLY1-1:0];
+reg[inst_sig_width+inst_exp_width:0]  _fully1_activated  [NUM_OF_FULLY1-1:0];
 //
-wire[inst_sig_width+inst_exp_width:0] _fully2_w[NUM_OF_FULLY2-1:0][SIZE_OF_FULLY2-1:0];
-reg[inst_sig_width+inst_exp_width:0]  _fully2  [NUM_OF_FULLY2-1:0][SIZE_OF_FULLY2-1:0];
-wire[inst_sig_width+inst_exp_width:0] _fully2_sum_w[NUM_OF_FULLY2-1:0];
-reg[inst_sig_width+inst_exp_width:0]  _fully2_sum  [NUM_OF_FULLY2-1:0];
-wire[inst_sig_width+inst_exp_width:0] _fully2_sum_activated_w[NUM_OF_FULLY2-1:0];
-reg[inst_sig_width+inst_exp_width:0]  _fully2_sum_activated  [NUM_OF_FULLY2-1:0];
+wire[inst_sig_width+inst_exp_width:0] _fully2_w[NUM_OF_FULLY2-1:0];
+reg[inst_sig_width+inst_exp_width:0]  _fully2  [NUM_OF_FULLY2-1:0];
 //
 wire[inst_sig_width+inst_exp_width:0] _softmax_w[SIZE_OF_SOFTMAX-1:0];
 reg[inst_sig_width+inst_exp_width:0]  _softmax  [SIZE_OF_SOFTMAX-1:0];
@@ -531,22 +525,15 @@ begin
 end endtask
 
 task record_fully;
-    integer num,size;
+    integer num;
 begin
     for(num=0 ; num<NUM_OF_FULLY1 ; num=num+1) begin
-        for(size=0 ; size<SIZE_OF_FULLY1 ; size=size+1) begin
-            _fully1[num][size] = _fully1_w[num][size];
-        end
-        _fully1_sum[num] = _fully1_sum_w[num];
-        _fully1_sum_activated[num] = _fully1_sum_activated_w[num];
+        _fully1[num] = _fully1_w[num];
+        _fully1_activated[num] = _fully1_activated_w[num];
     end
 
     for(num=0 ; num<NUM_OF_FULLY2 ; num=num+1) begin
-        for(size=0 ; size<SIZE_OF_FULLY2 ; size=size+1) begin
-            _fully2[num][size] = _fully2_w[num][size];
-        end
-        _fully2_sum[num] = _fully2_sum_w[num];
-        _fully2_sum_activated[num] = _fully2_sum_activated_w[num];
+        _fully2[num] = _fully2_w[num];
     end
 end endtask
 
@@ -794,8 +781,87 @@ generate
 endgenerate
 
 // Task 0 : Fully Connected
+parameter NUM_OF_INPUT_OF_FULLY1 = SIZE_OF_WEIGHT1; // 8
+parameter NUM_OF_INPUT_OF_FULLY2 = SIZE_OF_WEIGHT2; // 5
+genvar gen_wght;
+generate
+    // Fully 1
+    for(gen_wght=0 ; gen_wght<NUM_OF_FULLY1 ; gen_wght=gen_wght+1) begin
+        wire [inst_sig_width+inst_exp_width:0] a[NUM_OF_INPUT_OF_FULLY1-1:0];
+        wire [inst_sig_width+inst_exp_width:0] b[NUM_OF_INPUT_OF_FULLY1-1:0];
+        wire [inst_sig_width+inst_exp_width:0] fully1_out_pre_bias;
+        wire [inst_sig_width+inst_exp_width:0] fully1_out;
+        wire [inst_sig_width+inst_exp_width:0] fully1_out_activated;
+        // Input
+        for(gen_num=0 ; gen_num<NUM_OF_IMAGE_TASK0 ; gen_num=gen_num+1) begin
+            for(gen_row=0 ; gen_row<SIZE_OF_ACTIVATE ; gen_row=gen_row+1) begin
+                for(gen_col=0 ; gen_col<SIZE_OF_ACTIVATE ; gen_col=gen_col+1) begin
+                    assign a[gen_num*SIZE_OF_ACTIVATE*SIZE_OF_ACTIVATE + gen_row*SIZE_OF_ACTIVATE + gen_col]
+                        = _activation_w[gen_num][gen_row][gen_col];
+                    assign b[gen_num*SIZE_OF_ACTIVATE*SIZE_OF_ACTIVATE + gen_row*SIZE_OF_ACTIVATE + gen_col]
+                        = _weight1[gen_wght][gen_num*SIZE_OF_ACTIVATE*SIZE_OF_ACTIVATE + gen_row*SIZE_OF_ACTIVATE + gen_col];
+                end
+            end
+        end
+        // IP
+        mac #(inst_sig_width,inst_exp_width,inst_ieee_compliance,inst_arch,NUM_OF_INPUT_OF_FULLY1)
+            c(
+                .in1(a), .in2(b), .out(fully1_out_pre_bias)
+            );
+        DW_fp_addsub
+            #(inst_sig_width,inst_exp_width,inst_ieee_compliance)
+                A0 (.a(fully1_out_pre_bias), .b(_bias1[0]), .op(1'd0), .rnd(3'd0), .z(fully1_out));
+        assign _fully1_w[gen_wght] = fully1_out;
+
+        leakyRelu #(inst_sig_width,inst_exp_width,inst_ieee_compliance,inst_arch)
+            lr(
+                .in(fully1_out), .out(fully1_out_activated)
+            );
+        assign _fully1_activated_w[gen_wght] = fully1_out_activated;
+    end
+
+    // Fully 2
+    for(gen_wght=0 ; gen_wght<NUM_OF_FULLY2 ; gen_wght=gen_wght+1) begin
+        wire [inst_sig_width+inst_exp_width:0] a[NUM_OF_INPUT_OF_FULLY2-1:0];
+        wire [inst_sig_width+inst_exp_width:0] b[NUM_OF_INPUT_OF_FULLY2-1:0];
+        wire [inst_sig_width+inst_exp_width:0] fully2_out_pre_bias;
+        wire [inst_sig_width+inst_exp_width:0] fully2_out;
+        // Input
+        for(gen_num=0 ; gen_num<NUM_OF_INPUT_OF_FULLY2 ; gen_num=gen_num+1) begin
+            assign a[gen_num]
+                = _fully1_activated_w[gen_num];
+            assign b[gen_num]
+                = _weight2[gen_wght][gen_num];
+        end
+        // IP
+        mac #(inst_sig_width,inst_exp_width,inst_ieee_compliance,inst_arch,NUM_OF_INPUT_OF_FULLY2)
+            c(
+                .in1(a), .in2(b), .out(fully2_out_pre_bias)
+            );
+        DW_fp_addsub
+            #(inst_sig_width,inst_exp_width,inst_ieee_compliance)
+                A0 (.a(fully2_out_pre_bias), .b(_bias2[0]), .op(1'd0), .rnd(3'd0), .z(fully2_out));
+        assign _fully2_w[gen_wght] = fully2_out;
+    end
+endgenerate
 
 // Task 0 : Softmax
+generate
+    wire[inst_sig_width+inst_exp_width:0] in_z[SIZE_OF_SOFTMAX-1:0];
+    for(gen_num=0 ; gen_num<SIZE_OF_SOFTMAX ; gen_num=gen_num+1) begin
+        assign in_z[gen_num] = _fully2_w[gen_num];
+    end
+    for(gen_num=0 ; gen_num<SIZE_OF_SOFTMAX ; gen_num=gen_num+1) begin
+        wire[inst_sig_width+inst_exp_width:0] softmax_out;
+        softmax #(inst_sig_width,inst_exp_width,inst_ieee_compliance,inst_arch,SIZE_OF_SOFTMAX)
+            sm(
+                .in_z(in_z[gen_num]),
+                .in(in_z),
+                .out(softmax_out)
+            );
+        assign _softmax_w[gen_num] = softmax_out;
+    end
+endgenerate
 
 //=====================================================================
 // Float Utility
@@ -941,7 +1007,7 @@ task display_full_seperator; begin
 end endtask
 
 //=====================================================================
-// Dumper Task
+// Dumper
 //=====================================================================
 // Input
 matrix_3d_csv_dumper #(
@@ -1016,29 +1082,26 @@ matrix_3d_csv_dumper #(
     0,0,0,
     inst_sig_width,inst_exp_width) activation_dumper();
 
-matrix_2d_csv_dumper #(
-    NUM_OF_FULLY1-1,SIZE_OF_FULLY1-1,
-    0,0,
-    inst_sig_width,inst_exp_width,
-    "#", " wght1") fully1_dumper();
 matrix_1d_csv_dumper #(
     NUM_OF_FULLY1-1,
     0,
     inst_sig_width,inst_exp_width,
     "Fully1 Sum"
-) fully1_sum_dumper();
+) fully1_dumper();
 
-matrix_2d_csv_dumper #(
-    NUM_OF_FULLY2-1,SIZE_OF_FULLY2-1,
-    0,0,
+matrix_1d_csv_dumper #(
+    NUM_OF_FULLY1-1,
+    0,
     inst_sig_width,inst_exp_width,
-    "#", " wght2") fully2_dumper();
+    "Fully1 Sum After Activation"
+) fully1_activation_dumper();
+
 matrix_1d_csv_dumper #(
     NUM_OF_FULLY2-1,
     0,
     inst_sig_width,inst_exp_width,
     "Fully2 Sum"
-) fully2_sum_dumper();
+) fully2_dumper();
 
 matrix_1d_csv_dumper #(
     SIZE_OF_SOFTMAX-1,
@@ -1138,24 +1201,15 @@ begin
         activation_dumper.dump(file, is_hex, _activation);
         $fwrite(file, "\n");
 
-        $fdisplay(file, "Fully1");
+        // Fully 1
         fully1_dumper.dump(file, is_hex, _fully1);
         $fwrite(file, "\n");
 
-        fully1_sum_dumper.dump(file, is_hex, _fully1_sum);
+        fully1_activation_dumper.dump(file, is_hex, _fully1_activated);
         $fwrite(file, "\n");
 
-        fully1_sum_dumper.dump(file, is_hex, _fully1_sum_activated);
-        $fwrite(file, "\n");
-
-        $fdisplay(file, "Fully2");
+        // Fully 2
         fully2_dumper.dump(file, is_hex, _fully2);
-        $fwrite(file, "\n");
-
-        fully2_sum_dumper.dump(file, is_hex, _fully2_sum);
-        $fwrite(file, "\n");
-
-        fully2_sum_dumper.dump(file, is_hex, _fully2_sum_activated);
         $fwrite(file, "\n");
 
         // Softmax
@@ -1604,7 +1658,7 @@ module softmax
             end
         end
     endgenerate
-    // [exp(in_z)-exp(-x)] / sigma(exp(x))
+    // exp(in_z) / sigma(exp(x))
     wire[inst_sig_width+inst_exp_width:0] exp_pos_z;
     wire[inst_sig_width+inst_exp_width:0] res;
     DW_fp_exp 
