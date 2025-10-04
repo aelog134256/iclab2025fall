@@ -249,6 +249,50 @@ task reset_task; begin
     #(CYCLE/2.0) release clk;
 end endtask
 
+task clear_data;
+    integer channel,num,row,col;
+begin
+    // Image
+    for(num=0 ; num<_cur_num_of_image ; num=num+1) begin
+        for(row=0 ; row<SIZE_OF_IMAGE ; row=row+1) begin
+            for(col=0 ; col<SIZE_OF_IMAGE ; col=col+1) begin
+                _img[num][row][col] = 'dx;
+            end
+        end
+    end
+    // Kernel
+    for(channel=1 ; channel<=NUM_OF_KERNEL_CH ; channel=channel+1) begin
+        for(num=1 ; num<=NUM_OF_KERNEL_IN_CH ; num=num+1) begin
+            for(row=0 ; row<SIZE_OF_KERNEL ; row=row+1) begin
+                for(col=0 ; col<SIZE_OF_KERNEL ; col=col+1) begin
+                    _kernel[channel][num][row][col] = 'dx;
+                end
+            end
+        end
+    end
+    // Weight
+    for(num=0 ; num<NUM_OF_WEIGHT1 ; num=num+1) begin
+        for(row=0 ; row<SIZE_OF_WEIGHT1 ; row=row+1) begin
+            _weight1[num][row] = 'dx;
+        end
+    end
+    for(num=0 ; num<NUM_OF_BIAS1 ; num=num+1) begin
+        _bias1[num] = 'dx;
+    end
+    for(num=0 ; num<NUM_OF_WEIGHT2 ; num=num+1) begin
+        for(row=0 ; row<SIZE_OF_WEIGHT2 ; row=row+1) begin
+            _weight2[num][row] = 'dx;
+        end
+    end
+    for(num=0 ; num<NUM_OF_BIAS2 ; num=num+1) begin
+        _bias2[num] = 'dx;
+    end
+    // Capacity
+    for(num=0 ; num<NUM_OF_CAPACITY ; num=num+1) begin
+        _capacity[num] = 'dx;
+    end
+end endtask;
+
 task randomize_input;
     integer channel,num,row,col;
 begin
@@ -301,17 +345,87 @@ begin
             _capacity[num] = generate_rand_input(pat < SIMPLE_PATNUM);
         end
     end
-
-    
 end endtask
 
-task input_task; begin
+task input_task;
+    integer count;
+    integer count_new;
+    integer num,row,col;
+begin
+    clear_data;
     randomize_input;
     record_pad;
+
+    count = 0;
+    for(num=0 ; num<_cur_num_of_image ; num=num+1) begin
+        for(row=0 ; row<SIZE_OF_IMAGE ; row=row+1) begin
+            for(col=0 ; col<SIZE_OF_IMAGE ; col=col+1) begin
+                in_valid = 'd1;
+                if(count === 'd0) begin
+                    task_number = _task_number;
+                    mode = _mode;
+                end
+                else begin
+                    task_number = 'dx;
+                    mode = 'dx;
+                end
+
+                Image = _img[num][row][col];
+                
+                if(count < NUM_OF_KERNEL_IN_CH*SIZE_OF_KERNEL*SIZE_OF_KERNEL) begin
+                    Kernel_ch1 = _kernel[1][count/(SIZE_OF_KERNEL*SIZE_OF_KERNEL)+1][count%(SIZE_OF_KERNEL*SIZE_OF_KERNEL)/SIZE_OF_KERNEL][count%SIZE_OF_KERNEL];
+                    Kernel_ch2 = _kernel[2][count/(SIZE_OF_KERNEL*SIZE_OF_KERNEL)+1][count%(SIZE_OF_KERNEL*SIZE_OF_KERNEL)/SIZE_OF_KERNEL][count%SIZE_OF_KERNEL];
+                end
+                else begin
+                    Kernel_ch1 = 'dx;
+                    Kernel_ch2 = 'dx;
+                end
+
+                if(_task_number === 'd0) begin
+                    if(count < (NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1)) begin
+                        Weight_Bias = _weight1[count/SIZE_OF_WEIGHT1][count%SIZE_OF_WEIGHT1];
+                    end
+                    else if(count < (NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1 + NUM_OF_BIAS1)) begin
+                        count_new = count - NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1;
+                        Weight_Bias = _bias1[count_new%NUM_OF_BIAS1];
+                    end
+                    else if(count < (NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1 + NUM_OF_BIAS1 + NUM_OF_WEIGHT2*SIZE_OF_WEIGHT2)) begin
+                        count_new = count - NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1 - NUM_OF_BIAS1;
+                        Weight_Bias = _weight2[count_new/SIZE_OF_WEIGHT2][count_new%SIZE_OF_WEIGHT2];
+                    end
+                    else if(count < (NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1 + NUM_OF_BIAS1 + NUM_OF_WEIGHT2*SIZE_OF_WEIGHT2 + NUM_OF_BIAS2)) begin
+                        count_new = count - NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1 - NUM_OF_BIAS1 - NUM_OF_WEIGHT2*SIZE_OF_WEIGHT2;
+                        Weight_Bias = _bias2[count_new%NUM_OF_BIAS2];
+                    end
+                    else begin
+                        Weight_Bias = 'dx;
+                    end
+                end
+                else begin
+                    if(count < NUM_OF_CAPACITY) begin
+                        capacity_cost = _capacity[count];
+                    end
+                    else begin
+                        capacity_cost = 'dx;
+                    end
+                end
+
+                count = count + 1;
+                @(negedge clk);
+            end
+        end
+    end
+    in_valid ='d0;
+    task_number = 'dx;
+    mode = 'dx;
+    Image = 'dx;
+    Kernel_ch1 = 'dx;
+    Kernel_ch2 ='dx;
+    Weight_Bias = 'dx;
+    capacity_cost = 'dx;
 end endtask
 
 
-// All task
 task record_pad;
     integer num;
     integer row;
