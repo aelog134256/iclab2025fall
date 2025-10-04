@@ -48,7 +48,9 @@ real      MAX_RANGE_OF_INPUT = 0.5;
 parameter PRECISION_OF_RANDOM_EXPONENT = -127; // 2^(PRECISION_OF_RANDOM_EXPONENT) ~ the exponent of MAX_RANGE_OF_INPUT
 // <<<<< General Pattern Parameter
 integer   SEED = 5487;
-parameter DEBUG = 1;
+parameter DEBUG = 2;
+parameter DEBUG_ASSIGN_TASK = 1; // Only for DEBUG = 2
+parameter DEBUG_ASSIGN_MODE = 0; // Only for DEBUG = 2
 parameter INPUT_HEX_CSV = "input_hex.csv";
 parameter INPUT_FLOAT_CSV = "input_float.csv";
 parameter OUTPUT_HEX_CSV = "output_hex.csv";
@@ -294,6 +296,10 @@ task randomize_input;
 begin
     _task_number = $urandom() % NUM_OF_TASK;
     _mode = $urandom() % NUM_OF_MODE;
+    if(DEBUG == 2) begin
+        _task_number = DEBUG_ASSIGN_TASK;
+        _mode = DEBUG_ASSIGN_MODE;
+    end
     _cur_num_of_image = _task_number == 0 ? NUM_OF_IMAGE_TASK0 : NUM_OF_IMAGE_TASK1;
 
     // Image
@@ -884,7 +890,7 @@ endgenerate
 // Task 1 : Convolution
 generate
     for(gen_num=0 ; gen_num<NUM_OF_IMAGE_TASK1 ; gen_num=gen_num+1) begin
-        for(gen_ch=1 ; gen_ch<NUM_OF_KERNEL_CH ; gen_ch=gen_ch+1) begin
+        for(gen_ch=1 ; gen_ch<=NUM_OF_KERNEL_CH ; gen_ch=gen_ch+1) begin
             for(gen_knl=1 ; gen_knl<=NUM_OF_KERNEL_IN_CH ; gen_knl=gen_knl+1) begin
                 for(gen_row=0 ; gen_row<SIZE_OF_CONV ; gen_row=gen_row+1) begin
                     for(gen_col=0 ; gen_col<SIZE_OF_CONV ; gen_col=gen_col+1) begin
@@ -1098,9 +1104,14 @@ end endtask
 //=====================================================================
 // Input
 matrix_3d_csv_dumper #(
-    MAX_NUM_OF_IMAGE-1,SIZE_OF_IMAGE-1,SIZE_OF_IMAGE-1,
+    NUM_OF_IMAGE_TASK0-1,SIZE_OF_IMAGE-1,SIZE_OF_IMAGE-1,
     0,0,0,
-    inst_sig_width,inst_exp_width) image_dumper();
+    inst_sig_width,inst_exp_width) image_task0_dumper();
+
+matrix_3d_csv_dumper #(
+    NUM_OF_IMAGE_TASK1-1,SIZE_OF_IMAGE-1,SIZE_OF_IMAGE-1,
+    0,0,0,
+    inst_sig_width,inst_exp_width) image_task1_dumper();
 
 matrix_3d_csv_dumper #(
     NUM_OF_KERNEL_IN_CH,SIZE_OF_KERNEL-1,SIZE_OF_KERNEL-1,
@@ -1135,13 +1146,12 @@ matrix_1d_csv_dumper #(
 
 //-------------------------------------------------------------
 
-// Output
+// Output : task 0
 matrix_3d_csv_dumper #(
     MAX_NUM_OF_IMAGE-1,SIZE_OF_PAD-1,SIZE_OF_PAD-1,
     0,0,0,
-    inst_sig_width,inst_exp_width) pad_dumper();
+    inst_sig_width,inst_exp_width) pad0_dumper();
 
-// Output : task 0
 matrix_3d_csv_dumper #(
     NUM_OF_KERNEL_IN_CH,SIZE_OF_CONV-1,SIZE_OF_CONV-1,
     1,0,0,
@@ -1188,6 +1198,11 @@ matrix_1d_csv_dumper #(
 
 // Output : task 1
 matrix_3d_csv_dumper #(
+    NUM_OF_IMAGE_TASK1-1,SIZE_OF_PAD-1,SIZE_OF_PAD-1,
+    0,0,0,
+    inst_sig_width,inst_exp_width) pad1_dumper();
+
+matrix_3d_csv_dumper #(
     NUM_OF_KERNEL_IN_CH*NUM_OF_KERNEL_CH,SIZE_OF_CONV-1,SIZE_OF_CONV-1,
     1,0,0,
     inst_sig_width,inst_exp_width) conv1_dumper();
@@ -1219,7 +1234,10 @@ begin
 
     // Image
     $fdisplay(file, "Image");
-    image_dumper.dump(file, is_hex, _img);
+    if(_task_number === 'd0)
+        image_task0_dumper.dump(file, is_hex, _img);
+    else
+        image_task1_dumper.dump(file, is_hex, _img[NUM_OF_IMAGE_TASK1-1:0]);
     $fwrite(file, "\n");
 
     // Kernel
@@ -1245,14 +1263,15 @@ begin
     end
     else begin
         // Capacity
-        $fdisplay(file, "Capacity,");
         $fwrite(file, ",");
         for(num=0 ; num<NUM_OF_CAPACITY ; num=num+1) begin
             $fwrite(file, "%2d,", num);
         end
         $fwrite(file, "\n");
+        $fwrite(file, "Capacity,");
         for(num=0 ; num<NUM_OF_CAPACITY ; num=num+1) begin
-            $fwrite(file, "%2d,", _capacity[num]);
+            if(is_hex === 1) $fwrite(file, "%8h,", _capacity[num]);
+            else $fwrite(file, "%2d,", _capacity[num]);
         end
         $fwrite(file, "\n");
     end
@@ -1274,10 +1293,12 @@ begin
     else if(_mode === 'd1) $fwrite(file, "Padding,Replication,\n");
     else if(_mode === 'd2) $fwrite(file, "Padding,Reflection,\n");
     else if(_mode === 'd3) $fwrite(file, "Padding,Reflection,\n");
-    pad_dumper.dump(file,is_hex,_pad);
-    $fwrite(file, "\n");
+    
 
     if(_task_number === 'd0) begin
+        pad0_dumper.dump(file,is_hex,_pad);
+        $fwrite(file, "\n");
+
         for(num=0 ; num<NUM_OF_KERNEL_CH ; num=num+1) begin
             $fdisplay(file, "Convolution0,Channel #%2d", num+1);
             conv0_dumper.dump(file, is_hex, _convolution0[num]);
@@ -1312,9 +1333,16 @@ begin
         $fwrite(file, "\n");
     end
     else begin
+        pad1_dumper.dump(file,is_hex,_pad[NUM_OF_IMAGE_TASK1-1:0]);
+        $fwrite(file, "\n");
+
         for(num=0 ; num<NUM_OF_IMAGE_TASK1 ; num=num+1) begin
             $fdisplay(file, "Convolution1,Image #%2d", num);
             conv1_dumper.dump(file, is_hex, _convolution1[num]);
+        end
+        $fwrite(file, "\n");
+
+        for(num=0 ; num<NUM_OF_IMAGE_TASK1 ; num=num+1) begin
             conv1_sum_dumper.dump(file, is_hex, _convolution1_sum[num]);
         end
         $fwrite(file, "\n");
