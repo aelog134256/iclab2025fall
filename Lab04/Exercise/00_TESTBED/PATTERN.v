@@ -48,7 +48,7 @@ real      MAX_RANGE_OF_INPUT = 0.5;
 parameter PRECISION_OF_RANDOM_EXPONENT = -127; // 2^(PRECISION_OF_RANDOM_EXPONENT) ~ the exponent of MAX_RANGE_OF_INPUT
 // <<<<< General Pattern Parameter
 integer   SEED = 5487;
-parameter DEBUG = 0;
+parameter DEBUG = 1;
 parameter DEBUG_ASSIGN_TASK = 1; // Only for DEBUG = 2
 parameter DEBUG_ASSIGN_MODE = 0; // Only for DEBUG = 2
 parameter INPUT_HEX_CSV = "input_hex.csv";
@@ -58,7 +58,6 @@ parameter OUTPUT_FLOAT_CSV = "output_float.csv";
 //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 real      CYCLE = `CYCLE_TIME;
 parameter MAX_EXECUTION_CYCLE = 150;
-parameter OUTNUM = 3;
 
 parameter inst_sig_width = 23;
 parameter inst_exp_width = 8;
@@ -472,7 +471,7 @@ begin
         end
     end
 
-    if(_mode==='d1 || _mode==='d1) begin
+    if(_mode==='d0 || _mode==='d1) begin
         for(num=0 ; num<_cur_num_of_image ; num=num+1) begin
             for(row=1 ; row<=SIZE_OF_PAD-1 ; row=row+1) begin
                 _pad[num][row][0] = _img[num][row-1][0];
@@ -1548,29 +1547,10 @@ begin
     $fwrite(file, "%0s,", name);
     for(idx1=start1 ; idx1<=end1 ; idx1=idx1+1) begin
         if(is_hex === 1) $fwrite(file, "%8h,", in[idx1]);
-        else $fwrite(file, "%f,", float_bits_to_real(in[idx1]));
+        else $fwrite(file, "%f,", PATTERN.float_bits_to_real(in[idx1]));
     end
     $fwrite(file, "\n");
 end endtask;
-
-function real float_bits_to_real;
-    input reg[inst_sig_width+inst_exp_width:0] in;
-
-    reg[real_sig_width+real_exp_width:0] real_bits;
-    integer float_shift = -127;
-    integer double_shift = -1023;
-begin
-    real_bits = 0;
-    // sign
-    real_bits[real_sig_width+real_exp_width] = in[inst_sig_width+inst_exp_width];
-    // exponent
-    real_bits[real_sig_width+:real_exp_width] = in[inst_sig_width+:inst_exp_width]+float_shift-double_shift;
-    // mantissa(fraction)
-    real_bits[(real_sig_width-1)-:inst_sig_width] = in[0+:inst_sig_width];
-
-    float_bits_to_real = (in === 'dx) ? 0.0/0.0 : $bitstoreal(real_bits);
-
-end endfunction
 
 endmodule
 
@@ -1606,30 +1586,11 @@ begin
         $fwrite(file, "%0s%2d%0s,", prefix_row, idx2, postfix_row);
         for(idx1=start1 ; idx1<=end1 ; idx1=idx1+1) begin
             if(is_hex === 1) $fwrite(file, "%8h,", in[idx1][idx2]);
-            else $fwrite(file, "%f,", float_bits_to_real(in[idx1][idx2]));
+            else $fwrite(file, "%f,", PATTERN.float_bits_to_real(in[idx1][idx2]));
         end
         $fwrite(file, "\n");
     end
 end endtask;
-
-function real float_bits_to_real;
-    input reg[inst_sig_width+inst_exp_width:0] in;
-
-    reg[real_sig_width+real_exp_width:0] real_bits;
-    integer float_shift = -127;
-    integer double_shift = -1023;
-begin
-    real_bits = 0;
-    // sign
-    real_bits[real_sig_width+real_exp_width] = in[inst_sig_width+inst_exp_width];
-    // exponent
-    real_bits[real_sig_width+:real_exp_width] = in[inst_sig_width+:inst_exp_width]+float_shift-double_shift;
-    // mantissa(fraction)
-    real_bits[(real_sig_width-1)-:inst_sig_width] = in[0+:inst_sig_width];
-
-    float_bits_to_real = (in === 'dx) ? 0.0/0.0 : $bitstoreal(real_bits);
-
-end endfunction
 
 endmodule
 
@@ -1671,32 +1632,13 @@ begin
             $fwrite(file, "%2d,", idx2);
             for(idx3=start3 ; idx3<=end3 ; idx3=idx3+1) begin
                 if(is_hex === 1) $fwrite(file, "%8h,", in[idx1][idx2][idx3]);
-                else $fwrite(file, "%f,", float_bits_to_real(in[idx1][idx2][idx3]));
+                else $fwrite(file, "%f,", PATTERN.float_bits_to_real(in[idx1][idx2][idx3]));
             end
             $fwrite(file, ",");
         end
         $fwrite(file, "\n");
     end
 end endtask;
-
-function real float_bits_to_real;
-    input reg[inst_sig_width+inst_exp_width:0] in;
-
-    reg[real_sig_width+real_exp_width:0] real_bits;
-    integer float_shift = -127;
-    integer double_shift = -1023;
-begin
-    real_bits = 0;
-    // sign
-    real_bits[real_sig_width+real_exp_width] = in[inst_sig_width+inst_exp_width];
-    // exponent
-    real_bits[real_sig_width+:real_exp_width] = in[inst_sig_width+:inst_exp_width]+float_shift-double_shift;
-    // mantissa(fraction)
-    real_bits[(real_sig_width-1)-:inst_sig_width] = in[0+:inst_sig_width];
-
-    float_bits_to_real = (in === 'dx) ? 0.0/0.0 : $bitstoreal(real_bits);
-
-end endfunction
 
 endmodule
 
