@@ -220,7 +220,7 @@ task exe_task; begin
     for (pat=0 ; pat<TOTAL_PATNUM ; pat=pat+1) begin
         input_task;
         cal_task;
-        // wait_task;
+        wait_task;
         check_task;
     end
     pass_task;
@@ -1514,7 +1514,7 @@ begin
         $fwrite(file, "\n");
 
 
-        $fdisplay(file, "Select Channel,%b", _select_channels[0][_capacity[0]][SIZE_OF_CONV_SUM-1:0]);
+        $fdisplay(file, "Select Channel,#%4b", _select_channels[0][_capacity[0]][SIZE_OF_CONV_SUM-1:0]);
         $fdisplay(file, "Sum,%f", _dp[0][_capacity[0]]);
         
     end
