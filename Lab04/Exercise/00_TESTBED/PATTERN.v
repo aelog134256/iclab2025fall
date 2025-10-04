@@ -118,6 +118,7 @@ parameter SIZE_OF_WEIGHT2 = 5;
 parameter NUM_OF_BIAS2 = 1;
 // Input : task 1
 parameter NUM_OF_CAPACITY = 5;
+parameter BITS_OF_CAPACITY = 4;
 
 // Output
 parameter SIZE_OF_PAD_WINDOW = 2;
@@ -128,14 +129,14 @@ parameter SIZE_OF_MAXPOOL_WINDOW = 3;
 parameter SIZE_OF_MAXPOOL = SIZE_OF_CONV / SIZE_OF_MAXPOOL_WINDOW; // 2
 parameter SIZE_OF_ACTIVATE = SIZE_OF_MAXPOOL; // 2
 parameter NUM_OF_FULLY1 = NUM_OF_WEIGHT1; // 5
-parameter SIZE_OF_FULLY1 = SIZE_OF_WEIGHT1; // = NUM_OF_IMAGE_TASK0*SIZE_OF_ACTIVATE*SIZE_OF_ACTIVATE = 2 * 2 * 2 = 8
+parameter SIZE_OF_FULLY1 = SIZE_OF_WEIGHT1; // = NUM_OF_KERNEL_CH*SIZE_OF_ACTIVATE*SIZE_OF_ACTIVATE = 2 * 2 * 2 = 8
 parameter NUM_OF_FULLY2 = NUM_OF_WEIGHT2; // 3
 parameter SIZE_OF_FULLY2 = SIZE_OF_WEIGHT2; // = NUM_OF_WEIGHT1 = 5
 parameter SIZE_OF_SOFTMAX = NUM_OF_FULLY2;
 parameter SIZE_OF_OUTPUT_TASK0 = SIZE_OF_SOFTMAX;
 
 // Output : task 1
-
+parameter SIZE_OF_CONV_SUM = NUM_OF_KERNEL_IN_CH*NUM_OF_KERNEL_IN_CH; // 4
 //-------------------------------------------------------------------------------------------------------------------------------------
 
 // Data
@@ -151,23 +152,23 @@ reg[inst_sig_width+inst_exp_width:0] _bias1[NUM_OF_BIAS1-1:0];
 reg[inst_sig_width+inst_exp_width:0] _weight2[NUM_OF_WEIGHT2-1:0][SIZE_OF_WEIGHT2-1:0];
 reg[inst_sig_width+inst_exp_width:0] _bias2[NUM_OF_BIAS2-1:0];
 // Input : task 1
-reg[inst_sig_width+inst_exp_width:0] _capacity[NUM_OF_CAPACITY-1:0];
+reg[BITS_OF_CAPACITY-1:0] _capacity[NUM_OF_CAPACITY-1:0];
 
 //-------------------------------------------------------------------------------------------------------------------------------------
 
 // Result
 reg[inst_sig_width+inst_exp_width:0] _pad[MAX_NUM_OF_IMAGE-1:0][SIZE_OF_PAD-1:0][SIZE_OF_PAD-1:0];
 // Result : task 0
-wire[inst_sig_width+inst_exp_width:0] _convolution0_w[NUM_OF_IMAGE_TASK0-1:0][NUM_OF_KERNEL_IN_CH:1][SIZE_OF_CONV-1:0][SIZE_OF_CONV-1:0];
-reg[inst_sig_width+inst_exp_width:0]  _convolution0  [NUM_OF_IMAGE_TASK0-1:0][NUM_OF_KERNEL_IN_CH:1][SIZE_OF_CONV-1:0][SIZE_OF_CONV-1:0];
-wire[inst_sig_width+inst_exp_width:0] _convolution0_sum_w[NUM_OF_IMAGE_TASK0-1:0][SIZE_OF_CONV-1:0][SIZE_OF_CONV-1:0];
-reg[inst_sig_width+inst_exp_width:0]  _convolution0_sum  [NUM_OF_IMAGE_TASK0-1:0][SIZE_OF_CONV-1:0][SIZE_OF_CONV-1:0];
+wire[inst_sig_width+inst_exp_width:0] _convolution0_w[NUM_OF_KERNEL_CH-1:0][NUM_OF_KERNEL_IN_CH:1][SIZE_OF_CONV-1:0][SIZE_OF_CONV-1:0];
+reg[inst_sig_width+inst_exp_width:0]  _convolution0  [NUM_OF_KERNEL_CH-1:0][NUM_OF_KERNEL_IN_CH:1][SIZE_OF_CONV-1:0][SIZE_OF_CONV-1:0];
+wire[inst_sig_width+inst_exp_width:0] _convolution0_sum_w[NUM_OF_KERNEL_CH-1:0][SIZE_OF_CONV-1:0][SIZE_OF_CONV-1:0];
+reg[inst_sig_width+inst_exp_width:0]  _convolution0_sum  [NUM_OF_KERNEL_CH-1:0][SIZE_OF_CONV-1:0][SIZE_OF_CONV-1:0];
 //
-wire[inst_sig_width+inst_exp_width:0] _max_pool_w[NUM_OF_IMAGE_TASK0-1:0][SIZE_OF_MAXPOOL-1:0][SIZE_OF_MAXPOOL-1:0];
-reg[inst_sig_width+inst_exp_width:0]  _max_pool  [NUM_OF_IMAGE_TASK0-1:0][SIZE_OF_MAXPOOL-1:0][SIZE_OF_MAXPOOL-1:0];
+wire[inst_sig_width+inst_exp_width:0] _max_pool_w[NUM_OF_KERNEL_CH-1:0][SIZE_OF_MAXPOOL-1:0][SIZE_OF_MAXPOOL-1:0];
+reg[inst_sig_width+inst_exp_width:0]  _max_pool  [NUM_OF_KERNEL_CH-1:0][SIZE_OF_MAXPOOL-1:0][SIZE_OF_MAXPOOL-1:0];
 //
-wire[inst_sig_width+inst_exp_width:0] _activation_w[NUM_OF_IMAGE_TASK0-1:0][SIZE_OF_ACTIVATE-1:0][SIZE_OF_ACTIVATE-1:0];
-reg[inst_sig_width+inst_exp_width:0]  _activation  [NUM_OF_IMAGE_TASK0-1:0][SIZE_OF_ACTIVATE-1:0][SIZE_OF_ACTIVATE-1:0];
+wire[inst_sig_width+inst_exp_width:0] _activation_w[NUM_OF_KERNEL_CH-1:0][SIZE_OF_ACTIVATE-1:0][SIZE_OF_ACTIVATE-1:0];
+reg[inst_sig_width+inst_exp_width:0]  _activation  [NUM_OF_KERNEL_CH-1:0][SIZE_OF_ACTIVATE-1:0][SIZE_OF_ACTIVATE-1:0];
 //
 wire[inst_sig_width+inst_exp_width:0] _fully1_w[NUM_OF_FULLY1-1:0];
 reg[inst_sig_width+inst_exp_width:0]  _fully1  [NUM_OF_FULLY1-1:0];
@@ -186,10 +187,11 @@ reg  [inst_sig_width+inst_exp_width:0] _errDiff   [SIZE_OF_OUTPUT_TASK0-1:0]; //
 reg _errFlag[SIZE_OF_OUTPUT_TASK0-1:0]; // if the float of |ans - gold| is less than 0.000001 or not
 reg _isErr;
 
-
 // Result : task 1
-wire[inst_sig_width+inst_exp_width:0] _convolution1_w[MAX_NUM_OF_IMAGE-1:0][NUM_OF_KERNEL_IN_CH*NUM_OF_KERNEL_CH:1][SIZE_OF_CONV-1:0][SIZE_OF_CONV-1:0];
-reg[inst_sig_width+inst_exp_width:0] _convolution1   [MAX_NUM_OF_IMAGE-1:0][NUM_OF_KERNEL_IN_CH*NUM_OF_KERNEL_CH:1][SIZE_OF_CONV-1:0][SIZE_OF_CONV-1:0];
+wire[inst_sig_width+inst_exp_width:0] _convolution1_w[NUM_OF_IMAGE_TASK1-1:0][NUM_OF_KERNEL_IN_CH*NUM_OF_KERNEL_CH:1][SIZE_OF_CONV-1:0][SIZE_OF_CONV-1:0];
+reg[inst_sig_width+inst_exp_width:0]  _convolution1  [NUM_OF_IMAGE_TASK1-1:0][NUM_OF_KERNEL_IN_CH*NUM_OF_KERNEL_CH:1][SIZE_OF_CONV-1:0][SIZE_OF_CONV-1:0];
+wire[inst_sig_width+inst_exp_width:0] _convolution1_sum_w[NUM_OF_IMAGE_TASK1-1:0][SIZE_OF_CONV_SUM-1:0];
+reg[inst_sig_width+inst_exp_width:0]  _convolution1_sum  [NUM_OF_IMAGE_TASK1-1:0][SIZE_OF_CONV_SUM-1:0];
 
 //-------------------------------------------------------------------------------------------------------------------------------------
 
@@ -336,7 +338,7 @@ begin
     else begin
         // Capacity
         for(num=0 ; num<NUM_OF_CAPACITY ; num=num+1) begin
-            _capacity[num] = generate_rand_input(pat < SIMPLE_PATNUM);
+            _capacity[num] = $urandom() % (2**BITS_OF_CAPACITY);
         end
     end
 end endtask
@@ -481,7 +483,7 @@ end endtask
 task record_convolution0;
     integer num,kernel,row,col;
 begin
-    for(num=0 ; num<NUM_OF_IMAGE_TASK0 ; num=num+1) begin
+    for(num=0 ; num<NUM_OF_KERNEL_CH ; num=num+1) begin
         for(kernel=1 ; kernel<=NUM_OF_KERNEL_IN_CH ; kernel=kernel+1) begin
             for(row=0 ; row<SIZE_OF_CONV ; row=row+1) begin
                 for(col=0 ; col<SIZE_OF_CONV ; col=col+1) begin
@@ -491,7 +493,7 @@ begin
         end
     end
 
-    for(num=0 ; num<NUM_OF_IMAGE_TASK0 ; num=num+1) begin
+    for(num=0 ; num<NUM_OF_KERNEL_CH ; num=num+1) begin
         for(row=0 ; row<SIZE_OF_CONV ; row=row+1) begin
             for(col=0 ; col<SIZE_OF_CONV ; col=col+1) begin
                 _convolution0_sum[num][row][col] = _convolution0_sum_w[num][row][col];
@@ -503,7 +505,7 @@ end endtask
 task record_max_pool;
     integer num,row,col;
 begin
-    for(num=0 ; num<NUM_OF_IMAGE_TASK0 ; num=num+1) begin
+    for(num=0 ; num<NUM_OF_KERNEL_CH ; num=num+1) begin
         for(row=0 ; row<SIZE_OF_MAXPOOL ; row=row+1) begin
             for(col=0 ; col<SIZE_OF_MAXPOOL ; col=col+1) begin
                 _max_pool[num][row][col] = _max_pool_w[num][row][col];
@@ -515,7 +517,7 @@ end endtask
 task record_activate;
     integer num,row,col;
 begin
-    for(num=0 ; num<NUM_OF_IMAGE_TASK0 ; num=num+1) begin
+    for(num=0 ; num<NUM_OF_KERNEL_CH ; num=num+1) begin
         for(row=0 ; row<SIZE_OF_ACTIVATE ; row=row+1) begin
             for(col=0 ; col<SIZE_OF_ACTIVATE ; col=col+1) begin
                 _activation[num][row][col] = _activation_w[num][row][col];
@@ -546,7 +548,24 @@ begin
 end endtask
 
 // Task 1
-task record_convolution1; begin
+task record_convolution1;
+    integer num,kernel,row,col;
+begin
+    for(num=0 ; num<NUM_OF_IMAGE_TASK1 ; num=num+1) begin
+        for(kernel=1 ; kernel<=NUM_OF_KERNEL_IN_CH*NUM_OF_KERNEL_CH ; kernel=kernel+1) begin
+            for(row=0 ; row<SIZE_OF_CONV ; row=row+1) begin
+                for(col=0 ; col<SIZE_OF_CONV ; col=col+1) begin
+                    _convolution1[num][kernel][row][col] = _convolution1_w[num][kernel][row][col];
+                end
+            end
+        end
+    end
+
+    for(num=0 ; num<NUM_OF_IMAGE_TASK1 ; num=num+1) begin
+        for(kernel=0 ; kernel<SIZE_OF_CONV_SUM ; kernel=kernel+1) begin
+            _convolution1_sum[num][kernel] = _convolution1_sum_w[num][kernel];
+        end
+    end
 end endtask
 
 task record_sum_of_convolution; begin
@@ -558,7 +577,6 @@ end endtask
 task cal_task; begin
     @(posedge clk);
     if(_task_number === 'd0) begin
-        $display("123");
         record_convolution0;
         record_max_pool;
         record_activate;
@@ -672,9 +690,9 @@ end endtask
 // Task 0 : Convolution
 parameter NUM_OF_INPUT_OF_CONV = SIZE_OF_KERNEL*SIZE_OF_KERNEL; // 3 * 3
 genvar gen_i, gen_j, gen_k;
-genvar gen_num, gen_knl, gen_row, gen_col, gen_inner;
+genvar gen_num, gen_ch, gen_knl, gen_row, gen_col, gen_inner;
 generate
-    for(gen_num=0 ; gen_num<NUM_OF_IMAGE_TASK0 ; gen_num=gen_num+1) begin
+    for(gen_ch=1 ; gen_ch<=NUM_OF_KERNEL_CH ; gen_ch=gen_ch+1) begin
         for(gen_knl=1 ; gen_knl<=NUM_OF_KERNEL_IN_CH ; gen_knl=gen_knl+1) begin
             for(gen_row=0 ; gen_row<SIZE_OF_CONV ; gen_row=gen_row+1) begin
                 for(gen_col=0 ; gen_col<SIZE_OF_CONV ; gen_col=gen_col+1) begin
@@ -683,15 +701,15 @@ generate
                     wire [inst_sig_width+inst_exp_width:0] conv_out;
                     // Input
                     for(gen_i=0 ; gen_i<NUM_OF_INPUT_OF_CONV ; gen_i=gen_i+1) begin
-                        assign a[gen_i] = _pad[gen_num][gen_row+gen_i/SIZE_OF_KERNEL][gen_col+gen_i%SIZE_OF_KERNEL];
-                        assign b[gen_i] = _kernel[gen_num+1][gen_knl][gen_i/SIZE_OF_KERNEL][gen_i%SIZE_OF_KERNEL];
+                        assign a[gen_i] = _pad[gen_knl-1][gen_row+gen_i/SIZE_OF_KERNEL][gen_col+gen_i%SIZE_OF_KERNEL];
+                        assign b[gen_i] = _kernel[gen_ch][gen_knl][gen_i/SIZE_OF_KERNEL][gen_i%SIZE_OF_KERNEL];
                     end
                     // IP
                     mac #(inst_sig_width,inst_exp_width,inst_ieee_compliance,inst_arch,NUM_OF_INPUT_OF_CONV)
                         c(
                             .in1(a), .in2(b), .out(conv_out)
                         );
-                    assign _convolution0_w[gen_num][gen_knl][gen_row][gen_col] = conv_out;
+                    assign _convolution0_w[gen_ch-1][gen_knl][gen_row][gen_col] = conv_out;
                 end
             end
         end
@@ -699,10 +717,10 @@ generate
 endgenerate
 
 generate
-    for(gen_num=0 ; gen_num<NUM_OF_IMAGE_TASK0 ; gen_num=gen_num+1) begin : gb_num
-        for(gen_row=0 ; gen_row<SIZE_OF_CONV ; gen_row=gen_row+1) begin : gb_row
-            for(gen_col=0 ; gen_col<SIZE_OF_CONV ; gen_col=gen_col+1) begin : gb_col
-                for(gen_knl=2 ; gen_knl<=NUM_OF_KERNEL_IN_CH ; gen_knl=gen_knl+1) begin : gb_knl
+    for(gen_num=0 ; gen_num<NUM_OF_KERNEL_CH ; gen_num=gen_num+1) begin : gb_num0
+        for(gen_row=0 ; gen_row<SIZE_OF_CONV ; gen_row=gen_row+1) begin : gb_row0
+            for(gen_col=0 ; gen_col<SIZE_OF_CONV ; gen_col=gen_col+1) begin : gb_col0
+                for(gen_knl=2 ; gen_knl<=NUM_OF_KERNEL_IN_CH ; gen_knl=gen_knl+1) begin : gb_knl0
                     wire [inst_sig_width+inst_exp_width:0] conv_sum_out;
                     if(gen_knl===2) begin
                         DW_fp_addsub#(inst_sig_width,inst_exp_width,inst_ieee_compliance,inst_arch)
@@ -715,14 +733,14 @@ generate
                     else begin
                         DW_fp_addsub#(inst_sig_width,inst_exp_width,inst_ieee_compliance,inst_arch)
                             as(
-                                .a(gb_num[gen_num].gb_row[gen_row].gb_col[gen_col].gb_knl[gen_knl-1].conv_sum_out),
+                                .a(gb_num0[gen_num].gb_row0[gen_row].gb_col0[gen_col].gb_knl0[gen_knl-1].conv_sum_out),
                                 .b(_convolution0_w[gen_num][gen_knl][gen_row][gen_col]),
                                 .op(1'd0), .rnd(3'd0), .z(conv_sum_out)
                             );
                     end
                 end
                 assign _convolution0_sum_w[gen_num][gen_row][gen_col] = 
-                    gb_num[gen_num].gb_row[gen_row].gb_col[gen_col].gb_knl[NUM_OF_KERNEL_IN_CH].conv_sum_out;
+                    gb_num0[gen_num].gb_row0[gen_row].gb_col0[gen_col].gb_knl0[NUM_OF_KERNEL_IN_CH].conv_sum_out;
             end
         end
     end
@@ -731,7 +749,7 @@ endgenerate
 // Task 0 : Max Pool
 parameter NUM_OF_INPUT_OF_MAXPOOL = SIZE_OF_MAXPOOL_WINDOW*SIZE_OF_MAXPOOL_WINDOW; // 3 * 3
 generate
-    for(gen_num=0 ; gen_num<NUM_OF_IMAGE_TASK0 ; gen_num=gen_num+1) begin
+    for(gen_num=0 ; gen_num<NUM_OF_KERNEL_CH ; gen_num=gen_num+1) begin
         for(gen_row=0 ; gen_row<SIZE_OF_MAXPOOL ; gen_row=gen_row+1) begin
             for(gen_col=0 ; gen_col<SIZE_OF_MAXPOOL ; gen_col=gen_col+1) begin
                 wire [inst_sig_width+inst_exp_width:0] _in[NUM_OF_INPUT_OF_MAXPOOL-1:0];
@@ -759,7 +777,7 @@ endgenerate
 
 // Task 0 : Activation
 generate
-    for(gen_num=0 ; gen_num<NUM_OF_IMAGE_TASK0 ; gen_num=gen_num+1) begin
+    for(gen_num=0 ; gen_num<NUM_OF_KERNEL_CH ; gen_num=gen_num+1) begin
         for(gen_row=0 ; gen_row<SIZE_OF_ACTIVATE ; gen_row=gen_row+1) begin
             for(gen_col=0 ; gen_col<SIZE_OF_ACTIVATE ; gen_col=gen_col+1) begin
                 wire[inst_sig_width+inst_exp_width:0] _tanh_out;
@@ -793,7 +811,7 @@ generate
         wire [inst_sig_width+inst_exp_width:0] fully1_out;
         wire [inst_sig_width+inst_exp_width:0] fully1_out_activated;
         // Input
-        for(gen_num=0 ; gen_num<NUM_OF_IMAGE_TASK0 ; gen_num=gen_num+1) begin
+        for(gen_num=0 ; gen_num<NUM_OF_KERNEL_CH ; gen_num=gen_num+1) begin
             for(gen_row=0 ; gen_row<SIZE_OF_ACTIVATE ; gen_row=gen_row+1) begin
                 for(gen_col=0 ; gen_col<SIZE_OF_ACTIVATE ; gen_col=gen_col+1) begin
                     assign a[gen_num*SIZE_OF_ACTIVATE*SIZE_OF_ACTIVATE + gen_row*SIZE_OF_ACTIVATE + gen_col]
@@ -860,6 +878,75 @@ generate
                 .out(softmax_out)
             );
         assign _softmax_w[gen_num] = softmax_out;
+    end
+endgenerate
+
+// Task 1 : Convolution
+generate
+    for(gen_num=0 ; gen_num<NUM_OF_IMAGE_TASK1 ; gen_num=gen_num+1) begin
+        for(gen_ch=1 ; gen_ch<NUM_OF_KERNEL_CH ; gen_ch=gen_ch+1) begin
+            for(gen_knl=1 ; gen_knl<=NUM_OF_KERNEL_IN_CH ; gen_knl=gen_knl+1) begin
+                for(gen_row=0 ; gen_row<SIZE_OF_CONV ; gen_row=gen_row+1) begin
+                    for(gen_col=0 ; gen_col<SIZE_OF_CONV ; gen_col=gen_col+1) begin
+                        wire [inst_sig_width+inst_exp_width:0] a[NUM_OF_INPUT_OF_CONV-1:0];
+                        wire [inst_sig_width+inst_exp_width:0] b[NUM_OF_INPUT_OF_CONV-1:0];
+                        wire [inst_sig_width+inst_exp_width:0] conv_out;
+                        // Input
+                        for(gen_i=0 ; gen_i<NUM_OF_INPUT_OF_CONV ; gen_i=gen_i+1) begin
+                            assign a[gen_i] = _pad[gen_num][gen_row+gen_i/SIZE_OF_KERNEL][gen_col+gen_i%SIZE_OF_KERNEL];
+                            assign b[gen_i] = _kernel[gen_ch][gen_knl][gen_i/SIZE_OF_KERNEL][gen_i%SIZE_OF_KERNEL];
+                        end
+                        // IP
+                        mac #(inst_sig_width,inst_exp_width,inst_ieee_compliance,inst_arch,NUM_OF_INPUT_OF_CONV)
+                            c(
+                                .in1(a), .in2(b), .out(conv_out)
+                            );
+                        assign _convolution1_w[gen_num][(gen_ch-1)*NUM_OF_KERNEL_CH+gen_knl][gen_row][gen_col] = conv_out;
+                    end
+                end
+            end
+        end
+    end
+endgenerate
+
+generate
+    for(gen_num=0 ; gen_num<NUM_OF_IMAGE_TASK1 ; gen_num=gen_num+1) begin : gb_num1
+        for(gen_knl=1 ; gen_knl<=NUM_OF_KERNEL_IN_CH*NUM_OF_KERNEL_CH ; gen_knl=gen_knl+1) begin : gb_knl1
+            for(gen_row=0 ; gen_row<SIZE_OF_CONV ; gen_row=gen_row+1) begin : gb_row1
+                for(gen_col=0 ; gen_col<SIZE_OF_CONV ; gen_col=gen_col+1) begin : gb_col1
+                    wire [inst_sig_width+inst_exp_width:0] conv_sum_out;
+                    if(gen_row===0 && gen_col===0) begin
+                        
+                    end
+                    else if(gen_row===0 && gen_col===1) begin
+                        DW_fp_addsub#(inst_sig_width,inst_exp_width,inst_ieee_compliance,inst_arch)
+                            as(
+                                .a(_convolution1_w[gen_num][gen_knl][gen_row][gen_col-1]),
+                                .b(_convolution1_w[gen_num][gen_knl][gen_row][gen_col]),
+                                .op(1'd0), .rnd(3'd0), .z(conv_sum_out)
+                            );
+                    end
+                    else if(gen_row>0 && gen_col===0) begin
+                        DW_fp_addsub#(inst_sig_width,inst_exp_width,inst_ieee_compliance,inst_arch)
+                            as(
+                                .a(gb_num1[gen_num].gb_knl1[gen_knl].gb_row1[gen_row-1].gb_col1[SIZE_OF_CONV-1].conv_sum_out),
+                                .b(_convolution1_w[gen_num][gen_knl][gen_row][gen_col]),
+                                .op(1'd0), .rnd(3'd0), .z(conv_sum_out)
+                            );
+                    end
+                    else begin
+                        DW_fp_addsub#(inst_sig_width,inst_exp_width,inst_ieee_compliance,inst_arch)
+                            as(
+                                .a(gb_num1[gen_num].gb_knl1[gen_knl].gb_row1[gen_row].gb_col1[gen_col-1].conv_sum_out),
+                                .b(_convolution1_w[gen_num][gen_knl][gen_row][gen_col]),
+                                .op(1'd0), .rnd(3'd0), .z(conv_sum_out)
+                            );
+                    end
+                end
+            end
+            assign _convolution1_sum_w[gen_num][gen_knl-1] = 
+                    gb_num1[gen_num].gb_knl1[gen_knl].gb_row1[SIZE_OF_CONV-1].gb_col1[SIZE_OF_CONV-1].conv_sum_out;
+        end
     end
 endgenerate
 
@@ -1046,39 +1133,32 @@ matrix_1d_csv_dumper #(
     "Bias2"
 ) bias2_dumper();
 
-matrix_1d_csv_dumper #(
-    NUM_OF_CAPACITY-1,
-    0,
-    inst_sig_width,inst_exp_width,
-    "Capacity"
-) capacity_dumper();
-
 //-------------------------------------------------------------
 
 // Output
-// Output : task 0
 matrix_3d_csv_dumper #(
     MAX_NUM_OF_IMAGE-1,SIZE_OF_PAD-1,SIZE_OF_PAD-1,
     0,0,0,
     inst_sig_width,inst_exp_width) pad_dumper();
 
+// Output : task 0
 matrix_3d_csv_dumper #(
     NUM_OF_KERNEL_IN_CH,SIZE_OF_CONV-1,SIZE_OF_CONV-1,
     1,0,0,
-    inst_sig_width,inst_exp_width) conv0_dumper();
+    inst_sig_width,inst_exp_width,"ch") conv0_dumper();
 
 matrix_3d_csv_dumper #(
-    NUM_OF_IMAGE_TASK0-1,SIZE_OF_CONV-1,SIZE_OF_CONV-1,
+    NUM_OF_KERNEL_CH-1,SIZE_OF_CONV-1,SIZE_OF_CONV-1,
     0,0,0,
     inst_sig_width,inst_exp_width) conv0_sum_dumper();
 
 matrix_3d_csv_dumper #(
-    NUM_OF_IMAGE_TASK0-1,SIZE_OF_MAXPOOL-1,SIZE_OF_MAXPOOL-1,
+    NUM_OF_KERNEL_CH-1,SIZE_OF_MAXPOOL-1,SIZE_OF_MAXPOOL-1,
     0,0,0,
     inst_sig_width,inst_exp_width) max_pool_dumper();
 
 matrix_3d_csv_dumper #(
-    NUM_OF_IMAGE_TASK0-1,SIZE_OF_ACTIVATE-1,SIZE_OF_ACTIVATE-1,
+    NUM_OF_KERNEL_CH-1,SIZE_OF_ACTIVATE-1,SIZE_OF_ACTIVATE-1,
     0,0,0,
     inst_sig_width,inst_exp_width) activation_dumper();
 
@@ -1086,30 +1166,37 @@ matrix_1d_csv_dumper #(
     NUM_OF_FULLY1-1,
     0,
     inst_sig_width,inst_exp_width,
-    "Fully1 Sum"
-) fully1_dumper();
+    "Fully1 Sum") fully1_dumper();
 
 matrix_1d_csv_dumper #(
     NUM_OF_FULLY1-1,
     0,
     inst_sig_width,inst_exp_width,
-    "Fully1 Sum After Activation"
-) fully1_activation_dumper();
+    "Fully1 Sum After Activation") fully1_activation_dumper();
 
 matrix_1d_csv_dumper #(
     NUM_OF_FULLY2-1,
     0,
     inst_sig_width,inst_exp_width,
-    "Fully2 Sum"
-) fully2_dumper();
+    "Fully2 Sum") fully2_dumper();
 
 matrix_1d_csv_dumper #(
     SIZE_OF_SOFTMAX-1,
     0,
     inst_sig_width,inst_exp_width,
-    "Softmax"
-) softmax_dumper();
+    "Softmax") softmax_dumper();
 
+// Output : task 1
+matrix_3d_csv_dumper #(
+    NUM_OF_KERNEL_IN_CH*NUM_OF_KERNEL_CH,SIZE_OF_CONV-1,SIZE_OF_CONV-1,
+    1,0,0,
+    inst_sig_width,inst_exp_width) conv1_dumper();
+
+matrix_1d_csv_dumper #(
+    SIZE_OF_CONV_SUM-1,
+    0,
+    inst_sig_width,inst_exp_width,
+    "Convolution1 Sum")  conv1_sum_dumper();
 
 //-------------------------------------------------------------
 
@@ -1158,7 +1245,15 @@ begin
     end
     else begin
         // Capacity
-        capacity_dumper.dump(file,is_hex,_capacity);
+        $fdisplay(file, "Capacity,");
+        $fwrite(file, ",");
+        for(num=0 ; num<NUM_OF_CAPACITY ; num=num+1) begin
+            $fwrite(file, "%2d,", num);
+        end
+        $fwrite(file, "\n");
+        for(num=0 ; num<NUM_OF_CAPACITY ; num=num+1) begin
+            $fwrite(file, "%2d,", _capacity[num]);
+        end
         $fwrite(file, "\n");
     end
 
@@ -1183,13 +1278,13 @@ begin
     $fwrite(file, "\n");
 
     if(_task_number === 'd0) begin
-        for(num=0 ; num<NUM_OF_IMAGE_TASK0 ; num=num+1) begin
-            $fdisplay(file, "Convolution,Image #%2d", num);
+        for(num=0 ; num<NUM_OF_KERNEL_CH ; num=num+1) begin
+            $fdisplay(file, "Convolution0,Channel #%2d", num+1);
             conv0_dumper.dump(file, is_hex, _convolution0[num]);
         end
         $fwrite(file, "\n");
 
-        $fdisplay(file, "Convolution Sum");
+        $fdisplay(file, "Convolution0 Sum");
         conv0_sum_dumper.dump(file, is_hex, _convolution0_sum);
         $fwrite(file, "\n");
 
@@ -1217,6 +1312,12 @@ begin
         $fwrite(file, "\n");
     end
     else begin
+        for(num=0 ; num<NUM_OF_IMAGE_TASK1 ; num=num+1) begin
+            $fdisplay(file, "Convolution1,Image #%2d", num);
+            conv1_dumper.dump(file, is_hex, _convolution1[num]);
+            conv1_sum_dumper.dump(file, is_hex, _convolution1_sum[num]);
+        end
+        $fwrite(file, "\n");
 
     end
 
@@ -1253,7 +1354,7 @@ begin
     $fwrite(file, "%0s,", name);
     for(idx1=start1 ; idx1<=end1 ; idx1=idx1+1) begin
         if(is_hex === 1) $fwrite(file, "%8h,", in[idx1]);
-        else $fwrite(file, "%8.6f,", float_bits_to_real(in[idx1]));
+        else $fwrite(file, "%f,", float_bits_to_real(in[idx1]));
     end
     $fwrite(file, "\n");
 end endtask;
@@ -1311,7 +1412,7 @@ begin
         $fwrite(file, "%0s%2d%0s,", prefix_row, idx2, postfix_row);
         for(idx1=start1 ; idx1<=end1 ; idx1=idx1+1) begin
             if(is_hex === 1) $fwrite(file, "%8h,", in[idx1][idx2]);
-            else $fwrite(file, "%8.6f,", float_bits_to_real(in[idx1][idx2]));
+            else $fwrite(file, "%f,", float_bits_to_real(in[idx1][idx2]));
         end
         $fwrite(file, "\n");
     end
@@ -1347,7 +1448,8 @@ module matrix_3d_csv_dumper
     parameter start2 = 0,
     parameter start3 = 0,
     parameter inst_sig_width = 23,
-    parameter inst_exp_width = 8
+    parameter inst_exp_width = 8,
+    parameter prefix = ""
 )();
 
 parameter real_sig_width = 52; // verilog real (double)
@@ -1361,7 +1463,7 @@ task dump;
 begin
     // file = $fopen(file_name, "a");
     for(idx1=start1 ; idx1<=end1 ; idx1=idx1+1) begin
-        $fwrite(file, "[%2d],", idx1);
+        $fwrite(file, "[%0s%2d],", prefix, idx1);
         // idx1 index
         for(idx3=start3 ; idx3<=end3 ; idx3=idx3+1) begin
             $fwrite(file, "%2d,", idx3);
@@ -1375,7 +1477,7 @@ begin
             $fwrite(file, "%2d,", idx2);
             for(idx3=start3 ; idx3<=end3 ; idx3=idx3+1) begin
                 if(is_hex === 1) $fwrite(file, "%8h,", in[idx1][idx2][idx3]);
-                else $fwrite(file, "%8.6f,", float_bits_to_real(in[idx1][idx2][idx3]));
+                else $fwrite(file, "%f,", float_bits_to_real(in[idx1][idx2][idx3]));
             end
             $fwrite(file, ",");
         end
