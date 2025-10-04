@@ -48,7 +48,7 @@ real      MAX_RANGE_OF_INPUT = 0.5;
 parameter PRECISION_OF_RANDOM_EXPONENT = -127; // 2^(PRECISION_OF_RANDOM_EXPONENT) ~ the exponent of MAX_RANGE_OF_INPUT
 // <<<<< General Pattern Parameter
 integer   SEED = 5487;
-parameter DEBUG = 2;
+parameter DEBUG = 0;
 parameter DEBUG_ASSIGN_TASK = 1; // Only for DEBUG = 2
 parameter DEBUG_ASSIGN_MODE = 0; // Only for DEBUG = 2
 parameter INPUT_HEX_CSV = "input_hex.csv";
@@ -135,10 +135,11 @@ parameter SIZE_OF_FULLY1 = SIZE_OF_WEIGHT1; // = NUM_OF_KERNEL_CH*SIZE_OF_ACTIVA
 parameter NUM_OF_FULLY2 = NUM_OF_WEIGHT2; // 3
 parameter SIZE_OF_FULLY2 = SIZE_OF_WEIGHT2; // = NUM_OF_WEIGHT1 = 5
 parameter SIZE_OF_SOFTMAX = NUM_OF_FULLY2;
-parameter SIZE_OF_OUTPUT_TASK0 = SIZE_OF_SOFTMAX;
+parameter NUM_OF_OUTPUT_TASK0 = SIZE_OF_SOFTMAX;
 
 // Output : task 1
 parameter SIZE_OF_CONV_SUM = NUM_OF_KERNEL_IN_CH*NUM_OF_KERNEL_IN_CH; // 4
+parameter NUM_OF_OUTPUT_TASK1 = 1;
 //-------------------------------------------------------------------------------------------------------------------------------------
 
 // Data
@@ -146,6 +147,7 @@ parameter SIZE_OF_CONV_SUM = NUM_OF_KERNEL_IN_CH*NUM_OF_KERNEL_IN_CH; // 4
 reg _task_number;
 reg[1:0] _mode;
 reg[1:0] _cur_num_of_image;
+reg[1:0] _cur_num_of_output;
 reg[inst_sig_width+inst_exp_width:0] _img[MAX_NUM_OF_IMAGE-1:0][SIZE_OF_IMAGE-1:0][SIZE_OF_IMAGE-1:0];
 reg[inst_sig_width+inst_exp_width:0] _kernel[NUM_OF_KERNEL_CH:1][NUM_OF_KERNEL_IN_CH:1][SIZE_OF_KERNEL-1:0][SIZE_OF_KERNEL-1:0];
 // Input : task 0
@@ -183,20 +185,25 @@ reg[inst_sig_width+inst_exp_width:0]  _fully2  [NUM_OF_FULLY2-1:0];
 wire[inst_sig_width+inst_exp_width:0] _softmax_w[SIZE_OF_SOFTMAX-1:0];
 reg[inst_sig_width+inst_exp_width:0]  _softmax  [SIZE_OF_SOFTMAX-1:0];
 //
-wire [inst_sig_width+inst_exp_width:0] _errAllow = 32'h358637bd; // 0.000001
-wire [inst_sig_width+inst_exp_width:0] _errDiff_w [SIZE_OF_OUTPUT_TASK0-1:0];
-reg  [inst_sig_width+inst_exp_width:0] _errDiff   [SIZE_OF_OUTPUT_TASK0-1:0]; // |ans - gold|
-reg _errFlag[SIZE_OF_OUTPUT_TASK0-1:0]; // if the float of |ans - gold| is less than 0.000001 or not
-reg _isErr;
+reg[inst_sig_width+inst_exp_width:0] _your_task0_output[NUM_OF_OUTPUT_TASK0-1:0];
+wire [inst_sig_width+inst_exp_width:0] _err_allow = 32'h358637bd; // 0.000001
+wire [inst_sig_width+inst_exp_width:0] _err_diff_w[NUM_OF_OUTPUT_TASK0-1:0];
+reg  [inst_sig_width+inst_exp_width:0] _err_diff  [NUM_OF_OUTPUT_TASK0-1:0]; // |ans - gold|
+wire _err_flag_w[NUM_OF_OUTPUT_TASK0-1:0]; // if the float of |ans - gold| is less than 0.000001 or not
+reg  _err_flag  [NUM_OF_OUTPUT_TASK0-1:0];
+reg _is_err;
 
 // Result : task 1
 wire[inst_sig_width+inst_exp_width:0] _convolution1_w[NUM_OF_IMAGE_TASK1-1:0][NUM_OF_KERNEL_IN_CH*NUM_OF_KERNEL_CH:1][SIZE_OF_CONV-1:0][SIZE_OF_CONV-1:0];
 reg[inst_sig_width+inst_exp_width:0]  _convolution1  [NUM_OF_IMAGE_TASK1-1:0][NUM_OF_KERNEL_IN_CH*NUM_OF_KERNEL_CH:1][SIZE_OF_CONV-1:0][SIZE_OF_CONV-1:0];
 wire[inst_sig_width+inst_exp_width:0] _convolution1_sum_w[NUM_OF_IMAGE_TASK1-1:0][SIZE_OF_CONV_SUM-1:0];
 reg[inst_sig_width+inst_exp_width:0]  _convolution1_sum  [NUM_OF_IMAGE_TASK1-1:0][SIZE_OF_CONV_SUM-1:0];
+// TODO : Change to IP?
+// DP
+real _dp [NUM_OF_IMAGE_TASK1-1:0][(2**BITS_OF_CAPACITY-1):0];
+reg[inst_sig_width+inst_exp_width:0] _select_channels[NUM_OF_IMAGE_TASK1-1:0][(2**BITS_OF_CAPACITY-1):0];
 
 //-------------------------------------------------------------------------------------------------------------------------------------
-
 
 //=====================================================================
 //  CLOCK
@@ -293,6 +300,7 @@ end endtask;
 
 task randomize_input;
     integer channel,num,row,col;
+    integer flag;
 begin
     _task_number = $urandom() % NUM_OF_TASK;
     _mode = $urandom() % NUM_OF_MODE;
@@ -301,6 +309,7 @@ begin
         _mode = DEBUG_ASSIGN_MODE;
     end
     _cur_num_of_image = _task_number == 0 ? NUM_OF_IMAGE_TASK0 : NUM_OF_IMAGE_TASK1;
+    _cur_num_of_output = _task_number == 0 ? NUM_OF_OUTPUT_TASK0 : NUM_OF_OUTPUT_TASK1;
 
     // Image
     for(num=0 ; num<_cur_num_of_image ; num=num+1) begin
@@ -343,8 +352,20 @@ begin
     end
     else begin
         // Capacity
+        flag = 0;
         for(num=0 ; num<NUM_OF_CAPACITY ; num=num+1) begin
             _capacity[num] = $urandom() % (2**BITS_OF_CAPACITY);
+        end
+        for(num=1 ; num<NUM_OF_CAPACITY ; num=num+1) begin
+            flag = flag | (_capacity[num]<=_capacity[0]);
+        end
+        while(flag === 'd0) begin
+            for(num=0 ; num<NUM_OF_CAPACITY ; num=num+1) begin
+                _capacity[num] = $urandom() % (2**BITS_OF_CAPACITY);
+            end
+            for(num=1 ; num<NUM_OF_CAPACITY ; num=num+1) begin
+                flag = flag | (_capacity[num]<=_capacity[0]);
+            end
         end
     end
 end endtask
@@ -357,6 +378,8 @@ begin
     clear_data;
     randomize_input;
     record_pad;
+
+    repeat(($urandom() % 3) + 2) @(negedge clk);
 
     count = 0;
     for(num=0 ; num<_cur_num_of_image ; num=num+1) begin
@@ -574,10 +597,31 @@ begin
     end
 end endtask
 
-task record_sum_of_convolution; begin
-end endtask
+task calculate_select_kernel;
+    integer num, channel, cost, total_cost;
+    real candidate;
+begin
+    for(num=0 ; num<NUM_OF_IMAGE_TASK1 ; num=num+1) begin
+        for(cost=0 ; cost<=(2**BITS_OF_CAPACITY-1) ; cost=cost+1) begin
+            _dp[num][cost] = 0;
+            _select_channels[num][cost] = 0;
+        end
+    end
 
-task record_select_kernel; begin
+    total_cost = _capacity[0];
+    for(num=0 ; num<NUM_OF_IMAGE_TASK1 ; num=num+1) begin
+        for(channel=0 ; channel<SIZE_OF_CONV_SUM ; channel=channel+1) begin
+            if(_capacity[channel+1]<=total_cost) begin
+                for(cost=total_cost ; cost>=0 ; cost=cost-1) begin
+                    candidate = _dp[num][cost - _capacity[channel+1]] + float_bits_to_real(_convolution1_sum[num][channel]);
+                    if(candidate > _dp[num][cost]) begin
+                        _dp[num][cost] = candidate;
+                        _select_channels[num][cost] = _select_channels[num][cost - _capacity[channel+1]] | (1 << (SIZE_OF_CONV_SUM-1-channel));
+                    end
+                end
+            end
+        end
+    end
 end endtask
 
 task cal_task; begin
@@ -591,8 +635,7 @@ task cal_task; begin
     end
     else begin
         record_convolution1;
-        record_sum_of_convolution;
-        record_select_kernel;
+        calculate_select_kernel;
     end
 
     if(DEBUG > 0) begin
@@ -626,7 +669,98 @@ task wait_task; begin
     end
 end endtask
 
-task check_task; begin
+task record_error;
+    integer num;
+begin
+    _is_err = 0;
+    for(num=0 ; num<NUM_OF_OUTPUT_TASK0 ; num=num+1) begin
+        _err_diff[num] = _err_diff_w[num];
+        _err_flag[num] = _err_flag_w[num];
+        if(_err_flag[num]) begin
+            _is_err = 1;
+        end
+    end
+end endtask
+
+task check_task;
+    integer _max_out_lat;
+    integer _out_lat;
+
+    integer num;
+begin
+    // Output point should be in any order
+    _out_lat = 0;
+    _max_out_lat = _cur_num_of_output;
+    while(out_valid === 1) begin
+        if (_out_lat===_max_out_lat) begin
+            display_full_seperator;
+            $display("      Out cycles is more than %-2d at %-12d ps ", _max_out_lat, $time*1000);
+            display_full_seperator;
+            repeat(5) @(negedge clk);
+            $finish;
+        end
+
+        // Task 1
+        if(_task_number === 'd1) begin
+            if(out !== _select_channels[0][_capacity[0]]) begin
+                display_full_seperator;
+                $display("      Output signal : selected channel is not correct");
+                $display("          Your : %d - %b", out[inst_sig_width+inst_exp_width:SIZE_OF_CONV_SUM], out[SIZE_OF_CONV_SUM-1:0]);
+                $display("          Gold : %d - %b",
+                    _select_channels[0][_capacity[0]][inst_sig_width+inst_exp_width:SIZE_OF_CONV_SUM],
+                    _select_channels[0][_capacity[0]][SIZE_OF_CONV_SUM-1:0]);
+                $display("          Sum  : %f", _dp[0][_capacity[0]]);
+                display_full_seperator;
+                export_input_to_csv(0);
+                export_input_to_csv(1);
+                export_output_to_csv(0);
+                export_output_to_csv(1);
+                repeat(5) @(negedge clk);
+                $finish;
+            end
+        end
+        else begin
+            _your_task0_output[_out_lat] = out;
+        end
+
+        _out_lat = _out_lat + 1;
+        @(negedge clk);
+    end
+
+    if (_out_lat < _max_out_lat) begin
+        display_full_seperator;
+        $display("      Out cycles is less than %-2d at %-12d ps ", _max_out_lat, $time*1000);
+        display_full_seperator;
+        repeat(5) @(negedge clk);
+        $finish;
+    end
+
+    // Task 0
+    if(_task_number === 'd0) begin
+        record_error;
+        if(_is_err) begin
+            display_full_seperator;
+            $display("      Output err is over %1.8f (%8h)", float_bits_to_real(_err_allow), _err_allow);
+            for(num=0 ; num<NUM_OF_OUTPUT_TASK0 ; num=num+1) begin
+                _err_diff[num] = _err_diff_w[num];
+                _err_flag[num] = _err_flag_w[num];
+                $display("          Err Difference : %8.7f / %8h", float_bits_to_real(_err_diff[num]), _err_diff[num]);
+                $display("          Err Check      : %d", _err_flag[num]);
+                $display("          Your           : %8.7f / %8h", float_bits_to_real(_your_task0_output[num]), _your_task0_output[num]);
+                $display("          Gold           : %8.7f / %8h\n", float_bits_to_real(_softmax[num]), _softmax[num]);
+            end
+            export_input_to_csv(0);
+            export_input_to_csv(1);
+            export_output_to_csv(0);
+            export_output_to_csv(1);
+            display_full_seperator;
+            repeat(5) @(negedge clk);
+            $finish;
+        end
+    end
+
+    total_lat = total_lat + execution_lat;
+    $display("%0sPASS PATTERN NO.%4d, %0sCycles: %3d%0s",txt_blue_prefix, pat, txt_green_prefix, execution_lat, reset_color);
 end endtask
 
 task pass_task; begin
@@ -884,6 +1018,38 @@ generate
                 .out(softmax_out)
             );
         assign _softmax_w[gen_num] = softmax_out;
+    end
+endgenerate
+
+// Task 0 : Error
+generate
+    for(gen_num=0 ; gen_num<NUM_OF_OUTPUT_TASK0 ; gen_num=gen_num+1) begin
+        // wire [inst_sig_width+inst_exp_width:0] bound;
+        wire [inst_sig_width+inst_exp_width:0] error_diff;
+        wire [inst_sig_width+inst_exp_width:0] error_diff_pos;
+
+        // gold - ans
+        DW_fp_sub
+        #(inst_sig_width,inst_exp_width,inst_ieee_compliance) 
+            Err_S0 (.a(_softmax_w[gen_num]), .b(_your_task0_output[gen_num]), .z(error_diff), .rnd(3'd0));
+
+        // // gold * _err_allow
+        // DW_fp_mult
+        // #(inst_sig_width,inst_exp_width,inst_ieee_compliance) 
+        //     Err_M0 (.a(_errRateAllow), .b(_prob[gen_num]), .z(bound), .rnd(3'd0));
+
+        // // check |gold - ans| > gold * _err_allow
+        // DW_fp_cmp
+        // #(inst_sig_width,inst_exp_width,inst_ieee_compliance) 
+        //     Err_C0 (.a(error_diff_pos), .b(bound), .agtb(_errRateFlag[gen_num]), .zctr(1'd0));
+
+        // check |gold - ans| >  _err_allow
+        DW_fp_cmp
+        #(inst_sig_width,inst_exp_width,inst_ieee_compliance) 
+            Err_C0 (.a(error_diff_pos), .b(_err_allow), .agtb(_err_flag_w[gen_num]), .zctr(1'd0));
+
+        assign error_diff_pos = error_diff[inst_sig_width+inst_exp_width] ? {1'b0, error_diff[inst_sig_width+inst_exp_width-1:0]} : error_diff;
+        assign _err_diff_w[gen_num] = error_diff_pos;
     end
 endgenerate
 
