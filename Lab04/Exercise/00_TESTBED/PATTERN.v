@@ -220,7 +220,7 @@ task exe_task; begin
     for (pat=0 ; pat<TOTAL_PATNUM ; pat=pat+1) begin
         input_task;
         cal_task;
-        wait_task;
+        // wait_task;
         check_task;
     end
     pass_task;
@@ -612,10 +612,12 @@ begin
         for(channel=0 ; channel<SIZE_OF_CONV_SUM ; channel=channel+1) begin
             if(_capacity[channel+1]<=total_cost) begin
                 for(cost=total_cost ; cost>=0 ; cost=cost-1) begin
-                    candidate = _dp[num][cost - _capacity[channel+1]] + float_bits_to_real(_convolution1_sum[num][channel]);
-                    if(candidate > _dp[num][cost]) begin
-                        _dp[num][cost] = candidate;
-                        _select_channels[num][cost] = _select_channels[num][cost - _capacity[channel+1]] | (1 << (SIZE_OF_CONV_SUM-1-channel));
+                    if(cost>=_capacity[channel+1]) begin
+                        candidate = _dp[num][cost - _capacity[channel+1]] + float_bits_to_real(_convolution1_sum[num][channel]);
+                        if(candidate > _dp[num][cost]) begin
+                            _dp[num][cost] = candidate;
+                            _select_channels[num][cost] = _select_channels[num][cost - _capacity[channel+1]] | (1 << (SIZE_OF_CONV_SUM-1-channel));
+                        end
                     end
                 end
             end
@@ -741,8 +743,6 @@ begin
             display_full_seperator;
             $display("      Output err is over %1.8f (%8h)", float_bits_to_real(_err_allow), _err_allow);
             for(num=0 ; num<NUM_OF_OUTPUT_TASK0 ; num=num+1) begin
-                _err_diff[num] = _err_diff_w[num];
-                _err_flag[num] = _err_flag_w[num];
                 $display("          Err Difference : %8.7f / %8h", float_bits_to_real(_err_diff[num]), _err_diff[num]);
                 $display("          Err Check      : %d", _err_flag[num]);
                 $display("          Your           : %8.7f / %8h", float_bits_to_real(_your_task0_output[num]), _your_task0_output[num]);
@@ -1389,6 +1389,7 @@ begin
     if(is_hex === 1) file = $fopen(INPUT_HEX_CSV, "w");
     else file = $fopen(INPUT_FLOAT_CSV, "w");
 
+    $fdisplay(file, "Pattern,%d,", pat);
     $fdisplay(file, "Task,%2d,", _task_number);
     $fwrite(file, "Mode,%2d,", _mode);
     if(_mode === 'd0)      $fwrite(file, "Replication,tanh,\n");
@@ -1512,6 +1513,10 @@ begin
         end
         $fwrite(file, "\n");
 
+
+        $fdisplay(file, "Select Channel,%b", _select_channels[0][_capacity[0]][SIZE_OF_CONV_SUM-1:0]);
+        $fdisplay(file, "Sum,%f", _dp[0][_capacity[0]]);
+        
     end
 
     $fclose(file);
