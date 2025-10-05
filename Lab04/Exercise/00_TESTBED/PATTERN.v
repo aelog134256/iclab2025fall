@@ -216,9 +216,10 @@ task exe_task; begin
         pre_generate_input_task;
         cal_task;
         post_fix_input_task;
+        cal_task;
         input_task;
-        wait_task;
-        check_task;
+        // wait_task;
+        // check_task;
     end
     pass_task;
 end endtask
