@@ -37,7 +37,7 @@ input   [31:0]  out;
 //=====================================================================
 //vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 // Can be modified by user
-integer   TOTAL_PATNUM = 100;
+integer   TOTAL_PATNUM = 1000;
 integer   SIMPLE_PATNUM = 100;
 // >>>>> General Pattern Parameter
 // @Why need this
@@ -214,9 +214,7 @@ task exe_task; begin
     reset_task;
     for (pat=0 ; pat<TOTAL_PATNUM ; pat=pat+1) begin
         pre_generate_input_task;
-        cal_task;
         post_fix_input_task;
-        cal_task;
         input_task;
         wait_task;
         check_task;
@@ -359,6 +357,7 @@ task pre_generate_input_task; begin
     clear_data;
     randomize_input;
     record_pad;
+    cal_task;
 end endtask
 
 task record_pad;
@@ -619,6 +618,7 @@ begin
                         end
                         // Check
                         #0;
+                        record_pad;
                         cal_task;
                         flag = (_convolution1_sum[num][kernel] !== 0) ? 1 : 0;
                     end
@@ -626,6 +626,9 @@ begin
             end
         end
     end
+
+    record_pad;
+    cal_task;
 end endtask
 
 task input_task;
