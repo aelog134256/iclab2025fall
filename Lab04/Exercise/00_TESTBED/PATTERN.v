@@ -218,8 +218,10 @@ initial exe_task;
 task exe_task; begin
     reset_task;
     for (pat=0 ; pat<TOTAL_PATNUM ; pat=pat+1) begin
-        input_task;
+        pre_generate_input_task;
         cal_task;
+        post_fix_input_task;
+        input_task;
         wait_task;
         check_task;
     end
@@ -351,104 +353,17 @@ begin
     end
     else begin
         // Capacity
-        flag = 0;
         for(num=0 ; num<NUM_OF_CAPACITY ; num=num+1) begin
             _capacity[num] = $urandom() % (2**BITS_OF_CAPACITY);
         end
-        for(num=1 ; num<NUM_OF_CAPACITY ; num=num+1) begin
-            flag = flag | (_capacity[num]<=_capacity[0]);
-        end
-        while(flag === 'd0) begin
-            for(num=0 ; num<NUM_OF_CAPACITY ; num=num+1) begin
-                _capacity[num] = $urandom() % (2**BITS_OF_CAPACITY);
-            end
-            for(num=1 ; num<NUM_OF_CAPACITY ; num=num+1) begin
-                flag = flag | (_capacity[num]<=_capacity[0]);
-            end
-        end
     end
 end endtask
 
-task input_task;
-    integer count;
-    integer count_new;
-    integer num,row,col;
-begin
+task pre_generate_input_task; begin
     clear_data;
     randomize_input;
     record_pad;
-
-    repeat(($urandom() % 3) + 2) @(negedge clk);
-
-    count = 0;
-    for(num=0 ; num<_cur_num_of_image ; num=num+1) begin
-        for(row=0 ; row<SIZE_OF_IMAGE ; row=row+1) begin
-            for(col=0 ; col<SIZE_OF_IMAGE ; col=col+1) begin
-                in_valid = 'd1;
-                if(count === 'd0) begin
-                    task_number = _task_number;
-                    mode = _mode;
-                end
-                else begin
-                    task_number = 'dx;
-                    mode = 'dx;
-                end
-
-                Image = _img[num][row][col];
-                
-                if(count < NUM_OF_KERNEL_IN_CH*SIZE_OF_KERNEL*SIZE_OF_KERNEL) begin
-                    Kernel_ch1 = _kernel[1][count/(SIZE_OF_KERNEL*SIZE_OF_KERNEL)+1][count%(SIZE_OF_KERNEL*SIZE_OF_KERNEL)/SIZE_OF_KERNEL][count%SIZE_OF_KERNEL];
-                    Kernel_ch2 = _kernel[2][count/(SIZE_OF_KERNEL*SIZE_OF_KERNEL)+1][count%(SIZE_OF_KERNEL*SIZE_OF_KERNEL)/SIZE_OF_KERNEL][count%SIZE_OF_KERNEL];
-                end
-                else begin
-                    Kernel_ch1 = 'dx;
-                    Kernel_ch2 = 'dx;
-                end
-
-                if(_task_number === 'd0) begin
-                    if(count < (NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1)) begin
-                        Weight_Bias = _weight1[count/SIZE_OF_WEIGHT1][count%SIZE_OF_WEIGHT1];
-                    end
-                    else if(count < (NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1 + NUM_OF_BIAS1)) begin
-                        count_new = count - NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1;
-                        Weight_Bias = _bias1[count_new%NUM_OF_BIAS1];
-                    end
-                    else if(count < (NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1 + NUM_OF_BIAS1 + NUM_OF_WEIGHT2*SIZE_OF_WEIGHT2)) begin
-                        count_new = count - NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1 - NUM_OF_BIAS1;
-                        Weight_Bias = _weight2[count_new/SIZE_OF_WEIGHT2][count_new%SIZE_OF_WEIGHT2];
-                    end
-                    else if(count < (NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1 + NUM_OF_BIAS1 + NUM_OF_WEIGHT2*SIZE_OF_WEIGHT2 + NUM_OF_BIAS2)) begin
-                        count_new = count - NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1 - NUM_OF_BIAS1 - NUM_OF_WEIGHT2*SIZE_OF_WEIGHT2;
-                        Weight_Bias = _bias2[count_new%NUM_OF_BIAS2];
-                    end
-                    else begin
-                        Weight_Bias = 'dx;
-                    end
-                end
-                else begin
-                    if(count < NUM_OF_CAPACITY) begin
-                        capacity_cost = _capacity[count];
-                    end
-                    else begin
-                        capacity_cost = 'dx;
-                    end
-                end
-
-                count = count + 1;
-                @(negedge clk);
-            end
-        end
-    end
-    in_valid ='d0;
-    task_number = 'dx;
-    mode = 'dx;
-    Image = 'dx;
-    Kernel_ch1 = 'dx;
-    Kernel_ch2 ='dx;
-    Weight_Bias = 'dx;
-    capacity_cost = 'dx;
 end endtask
-
 
 task record_pad;
     integer num;
@@ -504,8 +419,6 @@ begin
         end
     end
 end endtask
-
-
 
 // Task 0
 task record_convolution0;
@@ -646,6 +559,153 @@ task cal_task; begin
         export_output_to_csv(1);
     end
     @(posedge clk);
+end endtask
+
+task post_fix_input_task;
+    integer flag;
+    integer num, kernel, kernel_num, channel, row, col;
+begin
+    /*
+        Based on the spec, we need to do validation checks on the input data.
+        If the values violate the spec, they must be regenerated randomly.
+    */
+    // @Task 1
+    if(_task_number === 'd1) begin
+        /*
+            @Capacity
+            @Description :
+                There must exist a cost less than capacity
+            @Workaround :
+                Regnerate capcacity until it meet the spec
+        */
+        flag = 0;
+        for(num=1 ; num<NUM_OF_CAPACITY ; num=num+1) begin
+            flag = flag | (_capacity[num]<=_capacity[0]);
+        end
+        while(flag === 'd0) begin
+            // Capacity
+            for(num=0 ; num<NUM_OF_CAPACITY ; num=num+1) begin
+                _capacity[num] = $urandom() % (2**BITS_OF_CAPACITY);
+            end
+            // Check
+            for(num=1 ; num<NUM_OF_CAPACITY ; num=num+1) begin
+                flag = flag | (_capacity[num]<=_capacity[0]);
+            end
+        end
+
+        /*
+            @Convolution Sum
+            @Description :
+                Every channel's sum shouldn't be zero.
+            @Workaround :
+                Regenerate image or kernel until it meet the spec
+        */
+        for(num=0 ; num<NUM_OF_IMAGE_TASK1 ; num=num+1) begin
+            for(kernel=0 ; kernel<SIZE_OF_CONV_SUM ; kernel=kernel+1) begin
+                if(_convolution1_sum[num][kernel] === 0) begin
+                    flag = 0;
+                    while(flag === 'd0) begin
+                        // Input
+                        for(row=0 ; row<SIZE_OF_IMAGE ; row=row+1) begin
+                            for(col=0 ; col<SIZE_OF_IMAGE ; col=col+1) begin
+                                _img[num][row][col] = generate_rand_input(pat < SIMPLE_PATNUM);
+                            end
+                        end
+                        // Kernel
+                        for(channel=1 ; channel<=NUM_OF_KERNEL_CH ; channel=channel+1) begin
+                            for(kernel_num=1 ; kernel_num<=NUM_OF_KERNEL_IN_CH ; kernel_num=kernel_num+1) begin
+                                for(row=0 ; row<SIZE_OF_KERNEL ; row=row+1) begin
+                                    for(col=0 ; col<SIZE_OF_KERNEL ; col=col+1) begin
+                                        _kernel[channel][kernel_num][row][col] = generate_rand_input(pat < SIMPLE_PATNUM);
+                                    end
+                                end
+                            end
+                        end
+                        // Check
+                        #0;
+                        cal_task;
+                        flag = (_convolution1_sum[num][kernel] !== 0) ? 1 : 0;
+                    end
+                end
+            end
+        end
+    end
+end endtask
+
+task input_task;
+    integer count;
+    integer count_new;
+    integer num,row,col;
+begin
+    repeat(($urandom() % 3) + 2) @(negedge clk);
+
+    count = 0;
+    for(num=0 ; num<_cur_num_of_image ; num=num+1) begin
+        for(row=0 ; row<SIZE_OF_IMAGE ; row=row+1) begin
+            for(col=0 ; col<SIZE_OF_IMAGE ; col=col+1) begin
+                in_valid = 'd1;
+                if(count === 'd0) begin
+                    task_number = _task_number;
+                    mode = _mode;
+                end
+                else begin
+                    task_number = 'dx;
+                    mode = 'dx;
+                end
+
+                Image = _img[num][row][col];
+                
+                if(count < NUM_OF_KERNEL_IN_CH*SIZE_OF_KERNEL*SIZE_OF_KERNEL) begin
+                    Kernel_ch1 = _kernel[1][count/(SIZE_OF_KERNEL*SIZE_OF_KERNEL)+1][count%(SIZE_OF_KERNEL*SIZE_OF_KERNEL)/SIZE_OF_KERNEL][count%SIZE_OF_KERNEL];
+                    Kernel_ch2 = _kernel[2][count/(SIZE_OF_KERNEL*SIZE_OF_KERNEL)+1][count%(SIZE_OF_KERNEL*SIZE_OF_KERNEL)/SIZE_OF_KERNEL][count%SIZE_OF_KERNEL];
+                end
+                else begin
+                    Kernel_ch1 = 'dx;
+                    Kernel_ch2 = 'dx;
+                end
+
+                if(_task_number === 'd0) begin
+                    if(count < (NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1)) begin
+                        Weight_Bias = _weight1[count/SIZE_OF_WEIGHT1][count%SIZE_OF_WEIGHT1];
+                    end
+                    else if(count < (NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1 + NUM_OF_BIAS1)) begin
+                        count_new = count - NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1;
+                        Weight_Bias = _bias1[count_new%NUM_OF_BIAS1];
+                    end
+                    else if(count < (NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1 + NUM_OF_BIAS1 + NUM_OF_WEIGHT2*SIZE_OF_WEIGHT2)) begin
+                        count_new = count - NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1 - NUM_OF_BIAS1;
+                        Weight_Bias = _weight2[count_new/SIZE_OF_WEIGHT2][count_new%SIZE_OF_WEIGHT2];
+                    end
+                    else if(count < (NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1 + NUM_OF_BIAS1 + NUM_OF_WEIGHT2*SIZE_OF_WEIGHT2 + NUM_OF_BIAS2)) begin
+                        count_new = count - NUM_OF_WEIGHT1*SIZE_OF_WEIGHT1 - NUM_OF_BIAS1 - NUM_OF_WEIGHT2*SIZE_OF_WEIGHT2;
+                        Weight_Bias = _bias2[count_new%NUM_OF_BIAS2];
+                    end
+                    else begin
+                        Weight_Bias = 'dx;
+                    end
+                end
+                else begin
+                    if(count < NUM_OF_CAPACITY) begin
+                        capacity_cost = _capacity[count];
+                    end
+                    else begin
+                        capacity_cost = 'dx;
+                    end
+                end
+
+                count = count + 1;
+                @(negedge clk);
+            end
+        end
+    end
+    in_valid ='d0;
+    task_number = 'dx;
+    mode = 'dx;
+    Image = 'dx;
+    Kernel_ch1 = 'dx;
+    Kernel_ch2 ='dx;
+    Weight_Bias = 'dx;
+    capacity_cost = 'dx;
 end endtask
 
 task wait_task; begin
