@@ -736,7 +736,7 @@ begin
     for(num=0 ; num<NUM_OF_OUTPUT_TASK0 ; num=num+1) begin
         _err_diff[num] = _err_diff_w[num];
         _err_flag[num] = _err_flag_w[num];
-        if(_err_flag[num]) begin
+        if(_err_flag[num] !== 0) begin
             _is_err = 1;
         end
     end
