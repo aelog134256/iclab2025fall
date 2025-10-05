@@ -354,7 +354,7 @@ begin
     else begin
         // Capacity
         for(num=0 ; num<NUM_OF_CAPACITY ; num=num+1) begin
-            _capacity[num] = $urandom() % (2**BITS_OF_CAPACITY);
+            _capacity[num] = $urandom() % (2**BITS_OF_CAPACITY-1) + 1;
         end
     end
 end endtask
@@ -585,7 +585,7 @@ begin
         while(flag === 'd0) begin
             // Capacity
             for(num=0 ; num<NUM_OF_CAPACITY ; num=num+1) begin
-                _capacity[num] = $urandom() % (2**BITS_OF_CAPACITY);
+                _capacity[num] = $urandom() % (2**BITS_OF_CAPACITY-1) + 1;
             end
             // Check
             for(num=1 ; num<NUM_OF_CAPACITY ; num=num+1) begin
