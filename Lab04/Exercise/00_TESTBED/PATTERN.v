@@ -45,7 +45,7 @@ integer   SIMPLE_PATNUM = 100;
 // Make sure the number should be with decimal point XXX.0
 real      MIN_RANGE_OF_INPUT = -0.5;
 real      MAX_RANGE_OF_INPUT = 0.5;
-parameter PRECISION_OF_RANDOM_EXPONENT = -127; // 2^(PRECISION_OF_RANDOM_EXPONENT) ~ the exponent of MAX_RANGE_OF_INPUT
+// parameter PRECISION_OF_RANDOM_EXPONENT = -5; // 2^(PRECISION_OF_RANDOM_EXPONENT) ~ the exponent of MAX_RANGE_OF_INPUT
 // <<<<< General Pattern Parameter
 integer   SEED = 5487;
 parameter DEBUG = 1;
@@ -92,12 +92,7 @@ reg[10*8:1] bkg_white_prefix  = "\033[47;1m";
 //      DATA MODEL
 //=====================================================================
 // Parameter
-// Display
-parameter DISPLAY_ELEMENT_SIZE = 3;
-parameter DISPLAY_NUM_OF_SPACE = 2;
-parameter DISPLAY_NUM_OF_SEP = 2;
-
-// Parameter
+real RAND_DIVISOR = (2.0**32) - 1.0;
 // Input
 parameter NUM_OF_TASK = 2;
 parameter NUM_OF_MODE = 4;
@@ -1226,35 +1221,38 @@ begin
             $finish;
         end
 
-        min_float_bits = real_to_float_bits(MIN_RANGE_OF_INPUT);
-        max_float_bits = real_to_float_bits(MAX_RANGE_OF_INPUT);
+        // min_float_bits = real_to_float_bits(MIN_RANGE_OF_INPUT);
+        // max_float_bits = real_to_float_bits(MAX_RANGE_OF_INPUT);
 
-        // Randomize 
-        range = MAX_RANGE_OF_INPUT - MIN_RANGE_OF_INPUT;
-        range_float_bits = real_to_float_bits(range);
-        random_exponent = (PRECISION_OF_RANDOM_EXPONENT+(2**(inst_exp_width-1)-1));
-        // (-127) + random_exponent = PRECISION_OF_RANDOM_EXPONENT
-        // => random_exponent = PRECISION_OF_RANDOM_EXPONENT + 127
-        // => random_exponent = PRECISION_OF_RANDOM_EXPONENT + (2**(inst_exp_width-1)-1)
-        if(range_float_bits[inst_sig_width+:inst_exp_width] < random_exponent) begin
-            $display("[ERROR] [PARAMETER] The PRECISION_OF_RANDOM_EXPONENT is larger than the expoent of your setting range(MAX_RANGE_OF_INPUT-MIN_RANGE_OF_INPUT)");
-            $finish;
-        end
+        // // Randomize 
+        // range = MAX_RANGE_OF_INPUT - MIN_RANGE_OF_INPUT;
+        // range_float_bits = real_to_float_bits(range);
+        // random_exponent = (PRECISION_OF_RANDOM_EXPONENT+(2**(inst_exp_width-1)-1));
+        // // (-127) + random_exponent = PRECISION_OF_RANDOM_EXPONENT
+        // // => random_exponent = PRECISION_OF_RANDOM_EXPONENT + 127
+        // // => random_exponent = PRECISION_OF_RANDOM_EXPONENT + (2**(inst_exp_width-1)-1)
+        // if(range_float_bits[inst_sig_width+:inst_exp_width] < random_exponent) begin
+        //     $display("[ERROR] [PARAMETER] The PRECISION_OF_RANDOM_EXPONENT is larger than the expoent of your setting range(MAX_RANGE_OF_INPUT-MIN_RANGE_OF_INPUT)");
+        //     $finish;
+        // end
 
-        /*
-        Intuitive method
-            @issue : not even distribution -> workaround : use a parameter to control precision by user
-        */
-        generate_rand_input = 0;
-        generate_rand_input[inst_sig_width+:inst_exp_width] = $urandom() % (range_float_bits[inst_sig_width+:inst_exp_width] + 1 - random_exponent) + random_exponent;
-        generate_rand_input[(inst_sig_width-1):0] = 
-            (generate_rand_input[inst_sig_width+:inst_exp_width] !== range_float_bits[inst_sig_width+:inst_exp_width]) ? $urandom() % (2**inst_sig_width)
-            : range_float_bits[(inst_sig_width-1):0] !== 0 ? $urandom() % (range_float_bits[(inst_sig_width-1):0])
-            : 0;
+        // /*
+        // Intuitive method
+        //     @issue : not even distribution -> workaround : use a parameter to control precision by user
+        // */
+        // generate_rand_input = 0;
+        // generate_rand_input[inst_sig_width+:inst_exp_width] = $urandom() % (range_float_bits[inst_sig_width+:inst_exp_width] + 1 - random_exponent) + random_exponent;
+        // generate_rand_input[(inst_sig_width-1):0] = 
+        //     (generate_rand_input[inst_sig_width+:inst_exp_width] !== range_float_bits[inst_sig_width+:inst_exp_width]) ? $urandom() % (2**inst_sig_width)
+        //     : range_float_bits[(inst_sig_width-1):0] !== 0 ? $urandom() % (range_float_bits[(inst_sig_width-1):0])
+        //     : 0;
 
-        // Add increment on minimal value
-        rand_out = float_bits_to_real(generate_rand_input);
-        rand_out = MIN_RANGE_OF_INPUT + rand_out;
+        // // Add increment on minimal value
+        // rand_out = float_bits_to_real(generate_rand_input);
+        // rand_out = MIN_RANGE_OF_INPUT + rand_out;
+        // generate_rand_input = real_to_float_bits(rand_out);
+
+        rand_out = (real'($urandom()) / RAND_DIVISOR) * (MAX_RANGE_OF_INPUT - MIN_RANGE_OF_INPUT) + MIN_RANGE_OF_INPUT;
         generate_rand_input = real_to_float_bits(rand_out);
     end
 end
