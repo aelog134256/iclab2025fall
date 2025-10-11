@@ -635,6 +635,7 @@ begin
     end
     _sad_frame_dc[row_start][col_start] = sad_dc;
     if(col_start!==0) begin
+        sad_horizontal = 0;
         for(row=row_start ; row<row_start+size ; row=row+1) begin
             for(col=col_start ; col<col_start+size ; col=col+1) begin
                 _predict_h[row][col] = integer_abs(_frame_I[row][col] - _frame_R[row][col_start-1]);
@@ -644,6 +645,7 @@ begin
         _sad_frame_h[row_start][col_start] = sad_horizontal;
     end
     if(row_start!==0) begin
+        sad_vertical = 0;
         for(row=row_start ; row<row_start+size ; row=row+1) begin
             for(col=col_start ; col<col_start+size ; col=col+1) begin
                 _predict_v[row][col] = integer_abs(_frame_I[row][col] - _frame_R[row_start-1][col]);
