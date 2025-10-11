@@ -106,6 +106,7 @@ parameter SHIFT_OF_DEQUANTIZATION = 6;
 reg[BITS_OF_PIXEL-1:0] _input_frame[NUM_OF_FRAME-1:0][SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // Input frame
 reg _mode[SIZE_OF_FRAME/SIZE_OF_MACROBLOCK-1:0][SIZE_OF_FRAME/SIZE_OF_MACROBLOCK-1:0];
 reg[BITS_OF_QP-1:0] _QP;
+reg[BITS_OF_PIXEL-1:0] _your[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // Input frame
 integer C[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0] = '{
     '{-1,  1,-1, 1}, // 15 ~ 12
     '{ 1, -1,-1, 1}, // 11 ~ 8
@@ -381,10 +382,26 @@ end endtask
 task check_task;
     integer _max_out_lat;
     integer _out_lat;
+
+    integer row;
+    integer col;
+    integer frame_row;
+    integer frame_col;
+    integer block_row;
+    integer block_col;
+    integer inner_row;
+    integer inner_col;
 begin
     // Output point should be in any order
     _out_lat = 0;
     _max_out_lat = SIZE_OF_FRAME*SIZE_OF_FRAME;
+
+    frame_row = 0;
+    frame_col = 0;
+    block_row = 0;
+    block_col = 0;
+    inner_row = 0;
+    inner_col = 0;
     while(_out_lat < _max_out_lat) begin
         wait_task;
         total_lat = total_lat + execution_lat;
@@ -397,10 +414,59 @@ begin
                 $finish;
             end
 
-            // TODO
+            _your[frame_row*SIZE_OF_MACROBLOCK + block_row*4 + inner_row][frame_col*SIZE_OF_MACROBLOCK + block_col*4 + inner_col] = out_value;
+
+            if( block_col === 4 - 1 &&
+                block_row === 4 - 1 &&
+                inner_col === 4 - 1 &&
+                inner_row === 4 - 1) begin
+                    frame_col = frame_col + 1;
+                    if(frame_col === 2) begin
+                        frame_col = 0;
+                        frame_row = frame_row + 1;
+                        if(frame_row === 2) begin
+                            frame_row = 0;
+                        end
+                    end
+            end
+
+            if( inner_col === 4 - 1 &&
+                inner_row === 4 - 1 ) begin
+                    block_col = block_col + 1;
+                    if(block_col === 4) begin
+                        block_col = 0;
+                        block_row = block_row + 1;
+                        if(block_row === 4) begin
+                            block_row = 0;
+                        end
+                    end
+            end
+
+            inner_col = inner_col + 1;
+            if(inner_col === 4) begin
+                inner_col = 0;
+                inner_row = inner_row + 1;
+                if(inner_row === 4) begin
+                    inner_row = 0;
+                end
+            end
 
             _out_lat = _out_lat + 1;
             @(negedge clk);
+        end
+    end
+
+    for(row=0 ; row<SIZE_OF_FRAME ; row=row+1) begin
+        for(col=0 ; col<SIZE_OF_FRAME ; col=col+1) begin
+            if(_your[row][col] !== _frame_Z[row][col]) begin
+                display_full_seperator;
+                $display("      Output is not correct at (%2d, %2d) ", row, col);
+                $display("      Your    : %4d ", _your[row][col]);
+                $display("      Frame Z : %4d ", _frame_Z[row][col]);
+                display_full_seperator;
+                repeat(5) @(negedge clk);
+                $finish;
+            end
         end
     end
 
@@ -845,6 +911,8 @@ begin
     $fdisplay(file, "Prediction,Mode");
     string_dumper.dump_with_seperator(file, _prediction_mode, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
     $fdisplay(file, "");
+
+    $fdisplay(file, "");
     $fdisplay(file, "Prediction,DC Value");
     integer_dumper.dump_with_seperator(file, _predict_dc, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
     $fdisplay(file, "");
@@ -865,6 +933,7 @@ begin
     integer_dumper.dump_with_seperator(file, _sad_frame_v, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
     $fdisplay(file, "");
 
+    $fdisplay(file, "");
     $fdisplay(file, "Frame X");
     integer_dumper.dump_with_seperator(file, _frame_X, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
     $fdisplay(file, "");
@@ -872,6 +941,7 @@ begin
     integer_dumper.dump_with_seperator(file, _frame_W, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
     $fdisplay(file, "");
 
+    $fdisplay(file, "");
     $fdisplay(file, "MF Matrix");
     mf_dumper.dump(file, MF);
     $fdisplay(file, "");
@@ -879,16 +949,21 @@ begin
     $fdisplay(file, "");
     $fdisplay(file, "Quantization Bits,%2d", qbits);
     $fdisplay(file, "");
-
     $fdisplay(file, "Frame Z");
     integer_dumper.dump_with_seperator(file, _frame_Z, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
     $fdisplay(file, "");
+    $fdisplay(file, "Your");
+    frame_dumper.dump_with_seperator(file, _your, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
+    $fdisplay(file, "");
 
+    $fdisplay(file, "");
     $fdisplay(file, "V Matrix");
     mf_dumper.dump(file, V);
     $fdisplay(file, "");
     $fdisplay(file, "Frame W'");
     integer_dumper.dump_with_seperator(file, _frame_W_inverse, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
+    $fdisplay(file, "");
+
     $fdisplay(file, "");
     $fdisplay(file, "Frame X'");
     integer_dumper.dump_with_seperator(file, _frame_X_inverse, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
@@ -896,6 +971,7 @@ begin
     $fdisplay(file, "Frame R");
     integer_dumper.dump_with_seperator(file, _frame_R, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
     $fdisplay(file, "");
+
     $fclose(file);
 end endtask
 
