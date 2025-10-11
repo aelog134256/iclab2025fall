@@ -99,15 +99,36 @@ parameter DEFAULT_DC_VALUE = 128;
 
 parameter SIZE_OF_TRANSFORM = 4;
 parameter SHIFT_OF_INVERSE_TRANSFORM = 6;
+parameter SIZE_OF_QUATIZATION = 4;
 parameter NUM_TYPE_OF_QP = 6;
+parameter SHIFT_OF_DEQUANTIZATION = 6;
 
 reg[BITS_OF_PIXEL-1:0] _input_frame[NUM_OF_FRAME-1:0][SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // Input frame
 reg _mode[SIZE_OF_FRAME/SIZE_OF_MACROBLOCK-1:0][SIZE_OF_FRAME/SIZE_OF_MACROBLOCK-1:0];
 reg[BITS_OF_QP-1:0] _QP;
+integer C[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0] = '{
+    '{-1,  1,-1, 1}, // 15 ~ 12
+    '{ 1, -1,-1, 1}, // 11 ~ 8
+    '{-1, -1, 1, 1}, // 7 ~ 4
+    '{ 1,  1, 1, 1} // 3 ~ 0
+};
+integer CT[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0] = '{
+    '{-1,  1,-1, 1}, // 15 ~ 12
+    '{ 1, -1,-1, 1}, // 11 ~ 8
+    '{-1, -1, 1, 1}, // 7 ~ 4
+    '{ 1,  1, 1, 1} // 3 ~ 0
+};
 integer qp_mf_a[0:NUM_TYPE_OF_QP-1] = '{13107,11916,10082,9362,8192,7282};
 integer qp_mf_b[0:NUM_TYPE_OF_QP-1] = '{5243, 4660, 4194, 3647,3355,2893};
 integer qp_mf_c[0:NUM_TYPE_OF_QP-1] = '{8066, 7490, 6554, 5825,5243,4559};
 integer qp_offset[0:(MAX_OF_QP+1)/NUM_TYPE_OF_QP-1] = '{10922,21845,443690,87381,174762};
+integer qp_v_a[0:NUM_TYPE_OF_QP-1] = '{10,11,13,14,16,18};
+integer qp_v_b[0:NUM_TYPE_OF_QP-1] = '{16,18,20,23,25,29};
+integer qp_v_c[0:NUM_TYPE_OF_QP-1] = '{13,14,16,18,20,23};
+integer MF[SIZE_OF_QUATIZATION-1:0][SIZE_OF_QUATIZATION-1:0];
+integer V[SIZE_OF_QUATIZATION-1:0][SIZE_OF_QUATIZATION-1:0];
+integer offset;
+integer qbits;
 
 /*
 input -> [macroblock partitioning] -------------------------[+]--> [+] ---------(X)---> [Integer transform] ---(W)---> [Quantization] ----(Z)---> [Pre-Entropy frame]
@@ -156,6 +177,7 @@ task exe_task; begin
         generate_frames_task;
         input_frames_task;
         for (param_set=0 ; param_set<NUM_OF_FRAME ; param_set=param_set+1) begin
+            clear_frames;
             generate_param_task;
             input_param_task;
             cal_task;
@@ -296,12 +318,9 @@ begin
             else begin
                 size = SIZE_OF_PREDICT_MODE_1;
             end
-            $display("Block : (%2d, %2d)", block_row, block_col);
 
             for(row=0 ; row<SIZE_OF_MACROBLOCK/size ; row=row+1) begin
                 for(col=0 ; col<SIZE_OF_MACROBLOCK/size ; col=col+1) begin
-                    $display("      True : (%2d, %2d)", block_row*SIZE_OF_MACROBLOCK + row*size,
-                        block_col*SIZE_OF_MACROBLOCK + col*size);
                     run_prediction(
                         block_row*SIZE_OF_MACROBLOCK + row*size,
                         block_col*SIZE_OF_MACROBLOCK + col*size,
@@ -475,6 +494,14 @@ begin
             _sad_frame_h[row][col] = 'dx;
         end
     end
+
+    for(row=0 ; row<SIZE_OF_QUATIZATION ; row=row+1) begin
+        for(col=0 ; col<SIZE_OF_QUATIZATION ; col=col+1) begin
+            MF[row][col] = 'dx;
+        end
+    end
+    offset = 'dx;
+    qbits = 'dx;
 end endtask
 
 task run_prediction;
@@ -534,9 +561,7 @@ begin
     sad_horizontal = 2**31-1;
     for(row=row_start ; row<row_start+size ; row=row+1) begin
         for(col=col_start ; col<col_start+size ; col=col+1) begin
-            _predict_dc[row][col] = (_frame_I[row][col] - dc_value) > 0
-                ? (_frame_I[row][col] - dc_value) 
-                : (dc_value - _frame_I[row][col]);
+            _predict_dc[row][col] = integer_abs(_frame_I[row][col] - dc_value);
             sad_dc = sad_dc + _predict_dc[row][col];
         end
     end
@@ -544,9 +569,7 @@ begin
     if(col_start!==0) begin
         for(row=row_start ; row<row_start+size ; row=row+1) begin
             for(col=col_start ; col<col_start+size ; col=col+1) begin
-                _predict_h[row][col] = (_frame_I[row][col] - _frame_R[row][col_start-1]) > 0
-                    ? (_frame_I[row][col] - _frame_R[row][col_start-1])
-                    : (_frame_R[row][col_start-1] - _frame_I[row][col]);
+                _predict_h[row][col] = integer_abs(_frame_I[row][col] - _frame_R[row][col_start-1]);
                 sad_horizontal = sad_horizontal + _predict_h[row][col];
             end
         end
@@ -555,9 +578,7 @@ begin
     if(row_start!==0) begin
         for(row=row_start ; row<row_start+size ; row=row+1) begin
             for(col=col_start ; col<col_start+size ; col=col+1) begin
-                _predict_v[row][col] = (_frame_I[row][col] - _frame_R[row_start-1][col]) > 0
-                    ? (_frame_I[row][col] - _frame_R[row_start-1][col])
-                    : (_frame_R[row_start-1][col] - _frame_I[row][col]);
+                _predict_v[row][col] = integer_abs(_frame_I[row][col] - _frame_R[row_start-1][col]);
                 sad_vertical = sad_vertical + _predict_v[row][col];
             end
         end
@@ -587,18 +608,6 @@ task run_integer_transform;
 
     integer row1,col1;
     integer row2,col2;
-    integer C[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0] = '{
-        '{-1,  1,-1, 1}, // 15 ~ 12
-        '{ 1, -1,-1, 1}, // 11 ~ 8
-        '{-1, -1, 1, 1}, // 7 ~ 4
-        '{ 1,  1, 1, 1} // 3 ~ 0
-    };
-    integer CT[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0] = '{
-        '{-1,  1,-1, 1}, // 15 ~ 12
-        '{ 1, -1,-1, 1}, // 11 ~ 8
-        '{-1, -1, 1, 1}, // 7 ~ 4
-        '{ 1,  1, 1, 1} // 3 ~ 0
-    };
     integer temp_out[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0];
     integer temp1[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0];
     integer temp2[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0];
@@ -634,14 +643,91 @@ task run_quantization;
     input integer row_start;
     input integer col_start;
     input integer size;
+
+    integer row1,col1;
+    integer row2,col2;
+    integer abs_value;
+    integer sign_value;
 begin
+    for(row1=0 ; row1<SIZE_OF_QUATIZATION ; row1=row1+1) begin
+        for(col1=0 ; col1<SIZE_OF_QUATIZATION ; col1=col1+1) begin
+            if(row1===0 || row1===2) begin
+                if(col1===0 || col1===2) begin
+                    MF[row1][col1] = qp_mf_a[_QP%NUM_TYPE_OF_QP];
+                end
+                else if(col1===1 || col1===3) begin
+                    MF[row1][col1] = qp_mf_c[_QP%NUM_TYPE_OF_QP];
+                end
+            end
+            else if(row1===1 || row1===3) begin
+                if(col1===0 || col1===2) begin
+                    MF[row1][col1] = qp_mf_c[_QP%NUM_TYPE_OF_QP];
+                end
+                else if(col1===1 || col1===3) begin
+                    MF[row1][col1] = qp_mf_b[_QP%NUM_TYPE_OF_QP];
+                end
+            end
+        end
+    end
+    offset = qp_offset[_QP/NUM_TYPE_OF_QP];
+    qbits = 15 + $floor(_QP/NUM_TYPE_OF_QP);
+
+    for(row1=0 ; row1<size/SIZE_OF_QUATIZATION ; row1=row1+1) begin
+        for(col1=0 ; col1<size/SIZE_OF_QUATIZATION ; col1=col1+1) begin
+            for(row2=row1*SIZE_OF_QUATIZATION ; row2<(row1+1)*SIZE_OF_QUATIZATION ; row2=row2+1) begin
+                for(col2=col1*SIZE_OF_QUATIZATION ; col2<(col1+1)*SIZE_OF_QUATIZATION ; col2=col2+1) begin
+                    abs_value = integer_abs(_frame_W[row_start+row2][col_start+col2]);
+                    abs_value = (abs_value * MF[row2%SIZE_OF_TRANSFORM][col2%SIZE_OF_TRANSFORM] + offset) >> qbits;
+                    sign_value = _frame_W[row_start+row2][col_start+col2] > 0 ? 1 : -1;
+                    _frame_Z[row_start+row2][col_start+col2] = abs_value * sign_value;
+                end
+            end
+        end
+    end
 end endtask
 
 task run_dequantization;
     input integer row_start;
     input integer col_start;
     input integer size;
+
+    integer row1,col1;
+    integer row2,col2;
+    integer value;
 begin
+    for(row1=0 ; row1<SIZE_OF_QUATIZATION ; row1=row1+1) begin
+        for(col1=0 ; col1<SIZE_OF_QUATIZATION ; col1=col1+1) begin
+            if(row1===0 || row1===2) begin
+                if(col1===0 || col1===2) begin
+                    V[row1][col1] = qp_v_a[_QP%NUM_TYPE_OF_QP];
+                end
+                else if(col1===1 || col1===3) begin
+                    V[row1][col1] = qp_v_c[_QP%NUM_TYPE_OF_QP];
+                end
+            end
+            else if(row1===1 || row1===3) begin
+                if(col1===0 || col1===2) begin
+                    V[row1][col1] = qp_v_c[_QP%NUM_TYPE_OF_QP];
+                end
+                else if(col1===1 || col1===3) begin
+                    V[row1][col1] = qp_v_b[_QP%NUM_TYPE_OF_QP];
+                end
+            end
+        end
+    end
+
+    for(row1=0 ; row1<size/SIZE_OF_QUATIZATION ; row1=row1+1) begin
+        for(col1=0 ; col1<size/SIZE_OF_QUATIZATION ; col1=col1+1) begin
+            for(row2=row1*SIZE_OF_QUATIZATION ; row2<(row1+1)*SIZE_OF_QUATIZATION ; row2=row2+1) begin
+                for(col2=col1*SIZE_OF_QUATIZATION ; col2<(col1+1)*SIZE_OF_QUATIZATION ; col2=col2+1) begin
+                    value = _frame_Z[row_start+row2][col_start+col2];
+                    value = value * V[row2%SIZE_OF_TRANSFORM][col2%SIZE_OF_TRANSFORM];
+                    value = value * (2**$floor(_QP/NUM_TYPE_OF_QP));
+                    _frame_W_inverse[row_start+row2][col_start+col2] = value;
+                end
+            end
+        end
+    end
 end endtask
 
 task run_inverse_integer_transform;
@@ -651,18 +737,6 @@ task run_inverse_integer_transform;
 
     integer row1,col1;
     integer row2,col2;
-    integer C[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0] = '{
-        '{-1,  1,-1, 1}, // 15 ~ 12
-        '{ 1, -1,-1, 1}, // 11 ~ 8
-        '{-1, -1, 1, 1}, // 7 ~ 4
-        '{ 1,  1, 1, 1} // 3 ~ 0
-    };
-    integer CT[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0] = '{
-        '{-1,  1,-1, 1}, // 15 ~ 12
-        '{ 1, -1,-1, 1}, // 11 ~ 8
-        '{-1, -1, 1, 1}, // 7 ~ 4
-        '{ 1,  1, 1, 1} // 3 ~ 0
-    };
     integer temp_out[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0];
     integer temp1[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0];
     integer temp2[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0];
@@ -695,6 +769,13 @@ begin
     end
 end endtask
 
+function integer integer_abs;
+    input integer in;
+begin
+    integer_abs = in > 0 ? in : -in;
+end
+endfunction
+
 //=====================================================================
 // Debug
 //=====================================================================
@@ -718,6 +799,10 @@ matrix_string_2d_csv_dumper #(
 matrix_integer_2d_csv_dumper #(
     SIZE_OF_FRAME-1,SIZE_OF_FRAME-1,
     0,0) integer_dumper();
+
+matrix_integer_2d_csv_dumper #(
+    SIZE_OF_QUATIZATION-1,SIZE_OF_QUATIZATION-1,
+    0,0) mf_dumper();
 
 matrix_3d_csv_dumper #(
     3,SIZE_OF_FRAME-1,SIZE_OF_FRAME-1,
@@ -786,8 +871,21 @@ begin
     $fdisplay(file, "Frame W");
     integer_dumper.dump_with_seperator(file, _frame_W, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
     $fdisplay(file, "");
+
+    $fdisplay(file, "MF Matrix");
+    mf_dumper.dump(file, MF);
+    $fdisplay(file, "");
+    $fdisplay(file, "Quantization Offset,%6d", offset);
+    $fdisplay(file, "");
+    $fdisplay(file, "Quantization Bits,%2d", qbits);
+    $fdisplay(file, "");
+
     $fdisplay(file, "Frame Z");
     integer_dumper.dump_with_seperator(file, _frame_Z, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
+    $fdisplay(file, "");
+
+    $fdisplay(file, "V Matrix");
+    mf_dumper.dump(file, V);
     $fdisplay(file, "");
     $fdisplay(file, "Frame W'");
     integer_dumper.dump_with_seperator(file, _frame_W_inverse, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
