@@ -89,7 +89,16 @@ parameter SIZE_OF_PREDICT_MODE_0 = 16;
 // mode 1
 parameter SIZE_OF_PREDICT_MODE_1 = 4;
 // Operation
+parameter SHIFT_T_L_MODE_0 = 5;
+parameter SHIFT_T_MODE_0   = 4;
+parameter SHIFT_L_MODE_0   = 4;
+parameter SHIFT_T_L_MODE_1 = 3;
+parameter SHIFT_T_MODE_1   = 2;
+parameter SHIFT_L_MODE_1   = 2;
+parameter DEFAULT_DC_VALUE = 128;
+
 parameter SIZE_OF_TRANSFORM = 4;
+parameter SHIFT_OF_INVERSE_TRANSFORM = 6;
 parameter NUM_TYPE_OF_QP = 6;
 
 reg[BITS_OF_PIXEL-1:0] _input_frame[NUM_OF_FRAME-1:0][SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // Input frame
@@ -112,20 +121,24 @@ input -> [macroblock partitioning] -------------------------[+]--> [+] ---------
 integer cur_index;
 reg[NUM_OF_FRAME-1:0] index_flag;
 // Forward
-reg[BITS_OF_PIXEL-1:0] _frame_I[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // input -> [macroblock partitioning] -> I
-reg[BITS_OF_PIXEL-1:0] _frame_P[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // I,R -> [Intra Prediction] -> P
-reg[BITS_OF_PIXEL-1:0] _frame_X[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // X = I - P
-reg[BITS_OF_PIXEL-1:0] _frame_W[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // X -> [Integer transform] -> W
-reg[BITS_OF_PIXEL-1:0] _frame_Z[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // W -> [Quantization] -> Z
+integer _frame_I[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // input -> [macroblock partitioning] -> I
+integer _frame_P[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // I,R -> [Intra Prediction] -> P
+integer _frame_X[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // X = I - P
+integer _frame_W[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // X -> [Integer transform] -> W
+integer _frame_Z[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // W -> [Quantization] -> Z
 // Backward
-reg[BITS_OF_PIXEL-1:0] _frame_W_inverse[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // Z -> [Dequantization] -> W_inverse
-reg[BITS_OF_PIXEL-1:0] _frame_X_inverse[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // W_inverse -> [Integer transform] -> X_inverse
-reg[BITS_OF_PIXEL-1:0] _frame_R[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // R = P + X_inverse
+integer _frame_W_inverse[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // Z -> [Dequantization] -> W_inverse
+integer _frame_X_inverse[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // W_inverse -> [Integer transform] -> X_inverse
+integer _frame_R[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // R = P + X_inverse
 // Other
-reg[BITS_OF_PIXEL-1:0] _prediction_mode[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0];
-reg[BITS_OF_PIXEL-1:0] _mode_dc[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0];
-reg[BITS_OF_PIXEL-1:0] _mode_v[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0];
-reg[BITS_OF_PIXEL-1:0] _mode_h[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0];
+reg[10*8:1] _prediction_mode[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0];
+integer _predict_dc[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0];
+integer _predict_v[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0];
+integer _predict_h[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0];
+integer _sad_frame_dc[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0];
+integer _sad_frame_v[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0];
+integer _sad_frame_h[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0];
+
 
 //=====================================================================
 //  CLOCK
@@ -228,6 +241,13 @@ begin
         end
     end
     _QP = $urandom() % (MAX_OF_QP+1);
+
+    // Assign frame based on index
+    for(row=0 ; row<SIZE_OF_FRAME ; row=row+1) begin
+        for(col=0 ; col<SIZE_OF_FRAME ; col=col+1) begin
+            _frame_I[row][col] = _input_frame[cur_index][row][col];
+        end
+    end
 end endtask
 
 task input_param_task;
@@ -256,8 +276,62 @@ begin
     mode = 'dx;
 end endtask
 
-task cal_task; begin
-    if(DEBUG==1) begin
+task cal_task;
+    integer block_row,block_col;
+    integer row,col;
+    integer size;
+begin
+    if(_mode[0][0]===0) begin
+        size = SIZE_OF_PREDICT_MODE_0;
+    end
+    else begin
+        size = SIZE_OF_PREDICT_MODE_1;
+    end
+
+    for(block_row=0 ; block_row<SIZE_OF_FRAME/SIZE_OF_MACROBLOCK ; block_row=block_row+1) begin
+        for(block_col=0 ; block_col<SIZE_OF_FRAME/SIZE_OF_MACROBLOCK ; block_col=block_col+1) begin
+            if(_mode[block_row][block_col]===0) begin
+                size = SIZE_OF_PREDICT_MODE_0;
+            end
+            else begin
+                size = SIZE_OF_PREDICT_MODE_1;
+            end
+            $display("Block : (%2d, %2d)", block_row, block_col);
+
+            for(row=0 ; row<SIZE_OF_MACROBLOCK/size ; row=row+1) begin
+                for(col=0 ; col<SIZE_OF_MACROBLOCK/size ; col=col+1) begin
+                    $display("      True : (%2d, %2d)", block_row*SIZE_OF_MACROBLOCK + row*size,
+                        block_col*SIZE_OF_MACROBLOCK + col*size);
+                    run_prediction(
+                        block_row*SIZE_OF_MACROBLOCK + row*size,
+                        block_col*SIZE_OF_MACROBLOCK + col*size,
+                        size);
+
+                    run_integer_transform(
+                        block_row*SIZE_OF_MACROBLOCK + row*size,
+                        block_col*SIZE_OF_MACROBLOCK + col*size,
+                        size);
+
+                    run_quantization(
+                        block_row*SIZE_OF_MACROBLOCK + row*size,
+                        block_col*SIZE_OF_MACROBLOCK + col*size,
+                        size);
+
+                    run_dequantization(
+                        block_row*SIZE_OF_MACROBLOCK + row*size,
+                        block_col*SIZE_OF_MACROBLOCK + col*size,
+                        size);
+
+                    run_inverse_integer_transform(
+                        block_row*SIZE_OF_MACROBLOCK + row*size,
+                        block_col*SIZE_OF_MACROBLOCK + col*size,
+                        size);
+                end
+            end
+        end
+    end
+
+    if(DEBUG===1) begin
         dump_input_frames_to_csv;
         dump_output_frames_to_csv;
     end
@@ -377,55 +451,248 @@ end endtask
 //=====================================================================
 //  Algorithm : H.264 Lite
 //=====================================================================
-task run_prediction;
-    input integer left;
-    input integer top;
-    input integer size;
+task clear_frames;
+    integer row,col;
 begin
+    for(row=0 ; row<SIZE_OF_FRAME ; row=row+1) begin
+        for(col=0 ; col<SIZE_OF_FRAME ; col=col+1) begin
+            _frame_I[row][col] = 'dx;
+            _frame_P[row][col] = 'dx;
+            _frame_X[row][col] = 'dx;
+            _frame_W[row][col] = 'dx;
+            _frame_Z[row][col] = 'dx;
+
+            _frame_W_inverse[row][col] = 'dx;
+            _frame_X_inverse[row][col] = 'dx;
+            _frame_R[row][col] = 'dx;
+
+            _prediction_mode[row][col] = "";
+            _predict_dc[row][col] = 'dx;
+            _predict_v[row][col] = 'dx;
+            _predict_h[row][col] = 'dx;
+            _sad_frame_dc[row][col] = 'dx;
+            _sad_frame_v[row][col] = 'dx;
+            _sad_frame_h[row][col] = 'dx;
+        end
+    end
 end endtask
 
-task run_integer_transform;
-    input integer left;
-    input integer top;
+task run_prediction;
+    input integer row_start;
+    input integer col_start;
     input integer size;
 
-    integer row,col;
+    integer row,col,inner;
+    integer dc_value;
+    integer shift;
+    // SAD : sum of absolute difference
+    integer sad_dc;
+    integer sad_horizontal;
+    integer sad_vertical;
+begin
+    // DC value
+    dc_value = 0;
+    if(row_start!==0) begin
+        // T
+        for(col=col_start ; col<col_start+size ; col=col+1) begin
+            dc_value = dc_value + _frame_R[row_start-1][col];
+        end
+    end
+    if(col_start!==0) begin
+        // L
+        for(row=row_start ; row<row_start+size ; row=row+1) begin
+            dc_value = dc_value + _frame_R[row][col_start-1];
+        end
+    end
+    // Shift
+    if(row_start!==0 && col_start!==0) begin
+        if(size === SIZE_OF_PREDICT_MODE_0)
+            dc_value = dc_value >> SHIFT_T_L_MODE_0;
+        else
+            dc_value = dc_value >> SHIFT_T_L_MODE_1;
+    end
+    else if(row_start===0 && col_start===0) begin
+        dc_value = DEFAULT_DC_VALUE;
+    end
+    else if(col_start===0) begin // T available
+        if(size === SIZE_OF_PREDICT_MODE_0)
+            dc_value = dc_value >> SHIFT_T_MODE_0;
+        else
+            dc_value = dc_value >> SHIFT_T_MODE_1;
+    end
+    else if(row_start===0) begin // L available
+        if(size === SIZE_OF_PREDICT_MODE_0)
+            dc_value = dc_value >> SHIFT_L_MODE_0;
+        else
+            dc_value = dc_value >> SHIFT_L_MODE_1;
+    end
+    
+
+    // SAD : sum of absolute difference
+    sad_dc = 0;
+    sad_vertical = 2**31-1;
+    sad_horizontal = 2**31-1;
+    for(row=row_start ; row<row_start+size ; row=row+1) begin
+        for(col=col_start ; col<col_start+size ; col=col+1) begin
+            _predict_dc[row][col] = (_frame_I[row][col] - dc_value) > 0
+                ? (_frame_I[row][col] - dc_value) 
+                : (dc_value - _frame_I[row][col]);
+            sad_dc = sad_dc + _predict_dc[row][col];
+        end
+    end
+    _sad_frame_dc[row_start][col_start] = sad_dc;
+    if(col_start!==0) begin
+        for(row=row_start ; row<row_start+size ; row=row+1) begin
+            for(col=col_start ; col<col_start+size ; col=col+1) begin
+                _predict_h[row][col] = (_frame_I[row][col] - _frame_R[row][col_start-1]) > 0
+                    ? (_frame_I[row][col] - _frame_R[row][col_start-1])
+                    : (_frame_R[row][col_start-1] - _frame_I[row][col]);
+                sad_horizontal = sad_horizontal + _predict_h[row][col];
+            end
+        end
+        _sad_frame_h[row_start][col_start] = sad_horizontal;
+    end
+    if(row_start!==0) begin
+        for(row=row_start ; row<row_start+size ; row=row+1) begin
+            for(col=col_start ; col<col_start+size ; col=col+1) begin
+                _predict_v[row][col] = (_frame_I[row][col] - _frame_R[row_start-1][col]) > 0
+                    ? (_frame_I[row][col] - _frame_R[row_start-1][col])
+                    : (_frame_R[row_start-1][col] - _frame_I[row][col]);
+                sad_vertical = sad_vertical + _predict_v[row][col];
+            end
+        end
+        _sad_frame_v[row_start][col_start] = sad_vertical;
+    end
+
+    // Assign prediction matirx : smallest SAD (same value -> follow DC > Horizontal > Vertical)
+    _prediction_mode[row_start][col_start] = (sad_dc <= sad_horizontal && sad_dc <= sad_vertical) ? "DC" :
+                                    (sad_horizontal <= sad_dc && sad_horizontal <= sad_vertical) ? "Horizontal" : "Vertical";
+    for(row=row_start ; row<row_start+size ; row=row+1) begin
+        for(col=col_start ; col<col_start+size ; col=col+1) begin
+            _frame_P[row][col] = (sad_dc <= sad_horizontal && sad_dc <= sad_vertical) ? dc_value :
+                                    (sad_horizontal <= sad_dc && sad_horizontal <= sad_vertical) ? _frame_R[row][col_start-1] : _frame_R[row_start-1][col];
+            _frame_X[row][col] = _frame_I[row][col] - _frame_P[row][col];
+        end
+    end
+end endtask
+
+matrix_integer_multiplier #(
+    SIZE_OF_TRANSFORM
+) mm();
+
+task run_integer_transform;
+    input integer row_start;
+    input integer col_start;
+    input integer size;
+
+    integer row1,col1;
+    integer row2,col2;
     integer C[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0] = '{
-        '{1, 1, 1, 1},
-        '{1, 1,-1,-1},
-        '{1,-1,-1, 1},
-        '{1,-1, 1,-1}
+        '{-1,  1,-1, 1}, // 15 ~ 12
+        '{ 1, -1,-1, 1}, // 11 ~ 8
+        '{-1, -1, 1, 1}, // 7 ~ 4
+        '{ 1,  1, 1, 1} // 3 ~ 0
     };
     integer CT[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0] = '{
-        '{1, 1, 1, 1},
-        '{1, 1,-1,-1},
-        '{1,-1,-1, 1},
-        '{1,-1, 1,-1}
+        '{-1,  1,-1, 1}, // 15 ~ 12
+        '{ 1, -1,-1, 1}, // 11 ~ 8
+        '{-1, -1, 1, 1}, // 7 ~ 4
+        '{ 1,  1, 1, 1} // 3 ~ 0
     };
+    integer temp_out[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0];
+    integer temp1[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0];
+    integer temp2[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0];
 begin
     if(size < SIZE_OF_TRANSFORM || (size%SIZE_OF_TRANSFORM) != 0) begin
         $display("[ERROR] Size (%3d) of integer transform should be divisible by %3d", size, SIZE_OF_TRANSFORM);
         $finish;
     end
-    for(row=0 ; row<SIZE_OF_TRANSFORM ; row=row+1) begin
-        for(col=0 ; col<SIZE_OF_TRANSFORM ; col=col+1) begin
-            
+    
+    for(row1=0 ; row1<size/SIZE_OF_TRANSFORM ; row1=row1+1) begin
+        for(col1=0 ; col1<size/SIZE_OF_TRANSFORM ; col1=col1+1) begin
+            for(row2=row1*SIZE_OF_TRANSFORM ; row2<(row1+1)*SIZE_OF_TRANSFORM ; row2=row2+1) begin
+                for(col2=col1*SIZE_OF_TRANSFORM ; col2<(col1+1)*SIZE_OF_TRANSFORM ; col2=col2+1) begin
+                    temp1[row2%SIZE_OF_TRANSFORM][col2%SIZE_OF_TRANSFORM] = _frame_X[row_start+row2][col_start+col2];
+                end
+            end
+            mm.multiple(temp2, C, temp1);
+            for(row2=row1*SIZE_OF_TRANSFORM ; row2<(row1+1)*SIZE_OF_TRANSFORM ; row2=row2+1) begin
+                for(col2=col1*SIZE_OF_TRANSFORM ; col2<(col1+1)*SIZE_OF_TRANSFORM ; col2=col2+1) begin
+                end
+            end
+            mm.multiple(temp_out, temp2, CT);
+            for(row2=row1*SIZE_OF_TRANSFORM ; row2<(row1+1)*SIZE_OF_TRANSFORM ; row2=row2+1) begin
+                for(col2=col1*SIZE_OF_TRANSFORM ; col2<(col1+1)*SIZE_OF_TRANSFORM ; col2=col2+1) begin
+                    _frame_W[row_start+row2][col_start+col2] = temp_out[row2%SIZE_OF_TRANSFORM][col2%SIZE_OF_TRANSFORM];
+                end
+            end
         end
     end
 end endtask
 
 task run_quantization;
-    input integer left;
-    input integer top;
+    input integer row_start;
+    input integer col_start;
     input integer size;
 begin
 end endtask
 
 task run_dequantization;
-    input integer left;
-    input integer top;
+    input integer row_start;
+    input integer col_start;
     input integer size;
 begin
+end endtask
+
+task run_inverse_integer_transform;
+    input integer row_start;
+    input integer col_start;
+    input integer size;
+
+    integer row1,col1;
+    integer row2,col2;
+    integer C[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0] = '{
+        '{-1,  1,-1, 1}, // 15 ~ 12
+        '{ 1, -1,-1, 1}, // 11 ~ 8
+        '{-1, -1, 1, 1}, // 7 ~ 4
+        '{ 1,  1, 1, 1} // 3 ~ 0
+    };
+    integer CT[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0] = '{
+        '{-1,  1,-1, 1}, // 15 ~ 12
+        '{ 1, -1,-1, 1}, // 11 ~ 8
+        '{-1, -1, 1, 1}, // 7 ~ 4
+        '{ 1,  1, 1, 1} // 3 ~ 0
+    };
+    integer temp_out[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0];
+    integer temp1[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0];
+    integer temp2[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0];
+begin
+    if(size < SIZE_OF_TRANSFORM || (size%SIZE_OF_TRANSFORM) != 0) begin
+        $display("[ERROR] Size (%3d) of integer transform should be divisible by %3d", size, SIZE_OF_TRANSFORM);
+        $finish;
+    end
+    
+    for(row1=0 ; row1<size/SIZE_OF_TRANSFORM ; row1=row1+1) begin
+        for(col1=0 ; col1<size/SIZE_OF_TRANSFORM ; col1=col1+1) begin
+            for(row2=row1*SIZE_OF_TRANSFORM ; row2<(row1+1)*SIZE_OF_TRANSFORM ; row2=row2+1) begin
+                for(col2=col1*SIZE_OF_TRANSFORM ; col2<(col1+1)*SIZE_OF_TRANSFORM ; col2=col2+1) begin
+                    temp1[row2%SIZE_OF_TRANSFORM][col2%SIZE_OF_TRANSFORM] = _frame_W_inverse[row_start+row2][col_start+col2];
+                end
+            end
+            mm.multiple(temp2, CT, temp1);
+            for(row2=row1*SIZE_OF_TRANSFORM ; row2<(row1+1)*SIZE_OF_TRANSFORM ; row2=row2+1) begin
+                for(col2=col1*SIZE_OF_TRANSFORM ; col2<(col1+1)*SIZE_OF_TRANSFORM ; col2=col2+1) begin
+                end
+            end
+            mm.multiple(temp_out, temp2, C);
+            for(row2=row1*SIZE_OF_TRANSFORM ; row2<(row1+1)*SIZE_OF_TRANSFORM ; row2=row2+1) begin
+                for(col2=col1*SIZE_OF_TRANSFORM ; col2<(col1+1)*SIZE_OF_TRANSFORM ; col2=col2+1) begin
+                    _frame_X_inverse[row_start+row2][col_start+col2] = temp_out[row2%SIZE_OF_TRANSFORM][col2%SIZE_OF_TRANSFORM] >> SHIFT_OF_INVERSE_TRANSFORM;
+                    _frame_R[row_start+row2][col_start+col2] = _frame_X_inverse[row_start+row2][col_start+col2] + _frame_P[row_start+row2][col_start+col2];
+                end
+            end
+        end
+    end
 end endtask
 
 //=====================================================================
@@ -443,6 +710,15 @@ matrix_2d_csv_dumper #(
     0,0,
     BITS_OF_PIXEL) frame_dumper();
 
+matrix_string_2d_csv_dumper #(
+    SIZE_OF_FRAME-1,SIZE_OF_FRAME-1,
+    0,0,
+    10*8) string_dumper();
+
+matrix_integer_2d_csv_dumper #(
+    SIZE_OF_FRAME-1,SIZE_OF_FRAME-1,
+    0,0) integer_dumper();
+
 matrix_3d_csv_dumper #(
     3,SIZE_OF_FRAME-1,SIZE_OF_FRAME-1,
     0,0,0,
@@ -454,8 +730,8 @@ task dump_input_frames_to_csv;
 begin
     file = $fopen(INPUT_CSV, "w");
     for(index=0 ; index<NUM_OF_FRAME/4 ; index=index+1) begin
-        $fdisplay(file, "[%2d] ~ [%2d],", index*4, (index+1)*4);
-        input_dumper.dump(file, _input_frame[index+:4]);
+        $fdisplay(file, "[%2d] ~ [%2d],", index*4, (index+1)*4-1);
+        input_dumper.dump(file, _input_frame[index*4+:4]);
         $fdisplay(file, ",");
     end
     $fclose(file);
@@ -475,33 +751,90 @@ begin
     end
     $fdisplay(file, "\n");
     $fdisplay(file, "Current Index,%2d",cur_index);
-    frame_dumper.dump_with_seperator(file, _frame_I, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
+    integer_dumper.dump_with_seperator(file, _frame_I, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
     $fdisplay(file, "");
     $fdisplay(file, "Prediction");
-    frame_dumper.dump_with_seperator(file, _frame_P, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
+    integer_dumper.dump_with_seperator(file, _frame_P, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
     $fdisplay(file, "");
+
+    $fdisplay(file, "Prediction,Mode");
+    string_dumper.dump_with_seperator(file, _prediction_mode, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
+    $fdisplay(file, "");
+    $fdisplay(file, "Prediction,DC Value");
+    integer_dumper.dump_with_seperator(file, _predict_dc, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
+    $fdisplay(file, "");
+    $fdisplay(file, "Prediction,Horizontal Value");
+    integer_dumper.dump_with_seperator(file, _predict_h, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
+    $fdisplay(file, "");
+    $fdisplay(file, "Prediction,Vertical Value");
+    integer_dumper.dump_with_seperator(file, _predict_v, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
+    $fdisplay(file, "");
+
+    $fdisplay(file, "Prediction,SAD DC Value");
+    integer_dumper.dump_with_seperator(file, _sad_frame_dc, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
+    $fdisplay(file, "");
+    $fdisplay(file, "Prediction,SAD Horizontal Value");
+    integer_dumper.dump_with_seperator(file, _sad_frame_h, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
+    $fdisplay(file, "");
+    $fdisplay(file, "Prediction,SAD Vertical Value");
+    integer_dumper.dump_with_seperator(file, _sad_frame_v, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
+    $fdisplay(file, "");
+
     $fdisplay(file, "Frame X");
-    frame_dumper.dump_with_seperator(file, _frame_X, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
+    integer_dumper.dump_with_seperator(file, _frame_X, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
     $fdisplay(file, "");
     $fdisplay(file, "Frame W");
-    frame_dumper.dump_with_seperator(file, _frame_W, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
+    integer_dumper.dump_with_seperator(file, _frame_W, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
     $fdisplay(file, "");
     $fdisplay(file, "Frame Z");
-    frame_dumper.dump_with_seperator(file, _frame_Z, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
+    integer_dumper.dump_with_seperator(file, _frame_Z, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
     $fdisplay(file, "");
     $fdisplay(file, "Frame W'");
-    frame_dumper.dump_with_seperator(file, _frame_W_inverse, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
+    integer_dumper.dump_with_seperator(file, _frame_W_inverse, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
     $fdisplay(file, "");
     $fdisplay(file, "Frame X'");
-    frame_dumper.dump_with_seperator(file, _frame_X_inverse, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
+    integer_dumper.dump_with_seperator(file, _frame_X_inverse, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
     $fdisplay(file, "");
     $fdisplay(file, "Frame R");
-    frame_dumper.dump_with_seperator(file, _frame_R, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
+    integer_dumper.dump_with_seperator(file, _frame_R, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
     $fdisplay(file, "");
     $fclose(file);
 end endtask
 
 endmodule
+
+//==========================================================================================================================================
+// Helper
+//==========================================================================================================================================
+module matrix_integer_multiplier
+#(
+    parameter size = 1
+)();
+integer row,col,inner;
+
+initial begin
+    if(size < 0) begin
+        $display("[ERROR] Size (%3d) should be larger than 0", size);
+        $finish;
+    end
+end
+
+task multiple;
+    output integer R[size-1:0][size-1:0];
+    input integer A[size-1:0][size-1:0];
+    input integer B[size-1:0][size-1:0];
+begin
+    for(row=0 ; row<size ; row=row+1) begin
+        for(col=0 ; col<size ; col=col+1) begin
+            R[row][col] = 0;
+            for(inner=0 ; inner<size ; inner=inner+1) begin
+                R[row][col] = R[row][col] + (A[row][inner] * B[inner][col]);
+            end
+        end
+    end
+end endtask
+endmodule
+
 
 //==========================================================================================================================================
 // Dumper
@@ -526,13 +859,13 @@ task dump;
     input [num_of_bits-1:0] in[end1:start1][end2:start2];
 begin
     $fwrite(file, ",");
-    for(idx1=start1 ; idx1<=end1 ; idx1=idx1+1) begin
-        $fwrite(file, "%0s%2d%0s,", prefix_col, idx1, postfix_col);
+    for(idx2=start2 ; idx2<=end2 ; idx2=idx2+1) begin
+        $fwrite(file, "%0s%2d%0s,", prefix_col, idx2, postfix_col);
     end
     $fwrite(file, "\n");
-    for(idx2=start2 ; idx2<=end2 ; idx2=idx2+1) begin
-        $fwrite(file, "%0s%2d%0s,", prefix_row, idx2, postfix_row);
-        for(idx1=start1 ; idx1<=end1 ; idx1=idx1+1) begin
+    for(idx1=start1 ; idx1<=end1 ; idx1=idx1+1) begin
+        $fwrite(file, "%0s%2d%0s,", prefix_row, idx1, postfix_row);
+        for(idx2=start2 ; idx2<=end2 ; idx2=idx2+1) begin
             $fwrite(file, "%8d,", in[idx1][idx2]);
         end
         $fwrite(file, "\n");
@@ -546,18 +879,137 @@ task dump_with_seperator;
     input integer num2;
 begin
     $fwrite(file, ",");
-    for(idx1=start1 ; idx1<=end1 ; idx1=idx1+1) begin
-        if(idx1!==start1 && idx1%num1===0)
-            $fwrite(file, "%0s,", seperator);
-        $fwrite(file, "%0s%2d%0s,", prefix_col, idx1, postfix_col);
-    end
-    $fwrite(file, "\n");
     for(idx2=start2 ; idx2<=end2 ; idx2=idx2+1) begin
         if(idx2!==start2 && idx2%num2===0)
+            $fwrite(file, "%0s,", seperator);
+        $fwrite(file, "%0s%2d%0s,", prefix_col, idx2, postfix_col);
+    end
+    $fwrite(file, "\n");
+    for(idx1=start1 ; idx1<=end1 ; idx1=idx1+1) begin
+        if(idx1!==start1 && idx1%num1===0)
             $fwrite(file, "\n");
-        $fwrite(file, "%0s%2d%0s,", prefix_row, idx2, postfix_row);
-        for(idx1=start1 ; idx1<=end1 ; idx1=idx1+1) begin
-            if(idx1!==start1 && idx1%num1===0)
+        $fwrite(file, "%0s%2d%0s,", prefix_row, idx1, postfix_row);
+        for(idx2=start2 ; idx2<=end2 ; idx2=idx2+1) begin
+            if(idx2!==start2 && idx2%num2===0)
+                $fwrite(file, "%0s,", seperator);
+            $fwrite(file, "%8d,", in[idx1][idx2]);
+        end
+        $fwrite(file, "\n");
+    end
+end endtask;
+endmodule
+
+module matrix_string_2d_csv_dumper
+#(
+    parameter end1 = 0,
+    parameter end2 = 0,
+    parameter start1 = 0,
+    parameter start2 = 0,
+    parameter num_of_bits = 1,
+    parameter seperator = "",
+    parameter prefix_col = "",
+    parameter postfix_col = "",
+    parameter prefix_row = "",
+    parameter postfix_row = ""
+)();
+integer idx1,idx2;
+
+task dump; 
+    input integer file;
+    input reg[num_of_bits:1] in[end1:start1][end2:start2];
+begin
+    $fwrite(file, ",");
+    for(idx2=start2 ; idx2<=end2 ; idx2=idx2+1) begin
+        $fwrite(file, "%0s%2d%0s,", prefix_col, idx2, postfix_col);
+    end
+    $fwrite(file, "\n");
+    for(idx1=start1 ; idx1<=end1 ; idx1=idx1+1) begin
+        $fwrite(file, "%0s%2d%0s,", prefix_row, idx1, postfix_row);
+        for(idx2=start2 ; idx2<=end2 ; idx2=idx2+1) begin
+            $fwrite(file, "%0s,", in[idx1][idx2]);
+        end
+        $fwrite(file, "\n");
+    end
+end endtask;
+
+task dump_with_seperator; 
+    input integer file;
+    input reg[num_of_bits:1] in[end1:start1][end2:start2];
+    input integer num1;
+    input integer num2;
+begin
+    $fwrite(file, ",");
+    for(idx2=start2 ; idx2<=end2 ; idx2=idx2+1) begin
+        if(idx2!==start2 && idx2%num2===0)
+            $fwrite(file, "%0s,", seperator);
+        $fwrite(file, "%0s%2d%0s,", prefix_col, idx2, postfix_col);
+    end
+    $fwrite(file, "\n");
+    for(idx1=start1 ; idx1<=end1 ; idx1=idx1+1) begin
+        if(idx1!==start1 && idx1%num1===0)
+            $fwrite(file, "\n");
+        $fwrite(file, "%0s%2d%0s,", prefix_row, idx1, postfix_row);
+        for(idx2=start2 ; idx2<=end2 ; idx2=idx2+1) begin
+            if(idx2!==start2 && idx2%num2===0)
+                $fwrite(file, "%0s,", seperator);
+            $fwrite(file, "%0s,", in[idx1][idx2]);
+        end
+        $fwrite(file, "\n");
+    end
+end endtask;
+endmodule
+
+module matrix_integer_2d_csv_dumper
+#(
+    parameter end1 = 0,
+    parameter end2 = 0,
+    parameter start1 = 0,
+    parameter start2 = 0,
+    parameter seperator = "",
+    parameter prefix_col = "",
+    parameter postfix_col = "",
+    parameter prefix_row = "",
+    parameter postfix_row = ""
+)();
+integer idx1,idx2;
+
+task dump; 
+    input integer file;
+    input integer in[end1:start1][end2:start2];
+begin
+    $fwrite(file, ",");
+    for(idx2=start2 ; idx2<=end2 ; idx2=idx2+1) begin
+        $fwrite(file, "%0s%2d%0s,", prefix_col, idx2, postfix_col);
+    end
+    $fwrite(file, "\n");
+    for(idx1=start1 ; idx1<=end1 ; idx1=idx1+1) begin
+        $fwrite(file, "%0s%2d%0s,", prefix_row, idx1, postfix_row);
+        for(idx2=start2 ; idx2<=end2 ; idx2=idx2+1) begin
+            $fwrite(file, "%8d,", in[idx1][idx2]);
+        end
+        $fwrite(file, "\n");
+    end
+end endtask;
+
+task dump_with_seperator; 
+    input integer file;
+    input integer in[end1:start1][end2:start2];
+    input integer num1;
+    input integer num2;
+begin
+    $fwrite(file, ",");
+    for(idx2=start2 ; idx2<=end2 ; idx2=idx2+1) begin
+        if(idx2!==start2 && idx2%num2===0)
+            $fwrite(file, "%0s,", seperator);
+        $fwrite(file, "%0s%2d%0s,", prefix_col, idx2, postfix_col);
+    end
+    $fwrite(file, "\n");
+    for(idx1=start1 ; idx1<=end1 ; idx1=idx1+1) begin
+        if(idx1!==start1 && idx1%num1===0)
+            $fwrite(file, "\n");
+        $fwrite(file, "%0s%2d%0s,", prefix_row, idx1, postfix_row);
+        for(idx2=start2 ; idx2<=end2 ; idx2=idx2+1) begin
+            if(idx2!==start2 && idx2%num2===0)
                 $fwrite(file, "%0s,", seperator);
             $fwrite(file, "%8d,", in[idx1][idx2]);
         end
@@ -610,5 +1062,4 @@ begin
         $fwrite(file, "\n");
     end
 end endtask;
-
 endmodule
