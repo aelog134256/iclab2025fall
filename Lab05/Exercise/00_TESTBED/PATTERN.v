@@ -829,7 +829,7 @@ begin
             mm.multiple(temp_out, temp2, C);
             for(row2=row1*SIZE_OF_TRANSFORM ; row2<(row1+1)*SIZE_OF_TRANSFORM ; row2=row2+1) begin
                 for(col2=col1*SIZE_OF_TRANSFORM ; col2<(col1+1)*SIZE_OF_TRANSFORM ; col2=col2+1) begin
-                    _frame_X_inverse[row_start+row2][col_start+col2] = temp_out[row2%SIZE_OF_TRANSFORM][col2%SIZE_OF_TRANSFORM] >> SHIFT_OF_INVERSE_TRANSFORM;
+                    _frame_X_inverse[row_start+row2][col_start+col2] = temp_out[row2%SIZE_OF_TRANSFORM][col2%SIZE_OF_TRANSFORM] >>> SHIFT_OF_INVERSE_TRANSFORM;
                     _frame_R[row_start+row2][col_start+col2] = _frame_X_inverse[row_start+row2][col_start+col2] + _frame_P[row_start+row2][col_start+col2];
                 end
             end
