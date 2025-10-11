@@ -955,7 +955,7 @@ begin
     integer_dumper.dump_with_seperator(file, _frame_Z, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
     $fdisplay(file, "");
     $fdisplay(file, "Your");
-    frame_dumper.dump_with_seperator(file, _your, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
+    integer_dumper.dump_with_seperator(file, _your, SIZE_OF_MACROBLOCK, SIZE_OF_MACROBLOCK);
     $fdisplay(file, "");
 
     $fdisplay(file, "");
