@@ -106,7 +106,7 @@ parameter SHIFT_OF_DEQUANTIZATION = 6;
 reg[BITS_OF_PIXEL-1:0] _input_frame[NUM_OF_FRAME-1:0][SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // Input frame
 reg _mode[SIZE_OF_FRAME/SIZE_OF_MACROBLOCK-1:0][SIZE_OF_FRAME/SIZE_OF_MACROBLOCK-1:0];
 reg[BITS_OF_QP-1:0] _QP;
-reg[BITS_OF_PIXEL-1:0] _your[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // Input frame
+integer _your[SIZE_OF_FRAME-1:0][SIZE_OF_FRAME-1:0]; // Output
 integer C[SIZE_OF_TRANSFORM-1:0][SIZE_OF_TRANSFORM-1:0] = '{
     '{-1,  1,-1, 1}, // 15 ~ 12
     '{ 1, -1,-1, 1}, // 11 ~ 8
