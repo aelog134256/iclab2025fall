@@ -464,6 +464,8 @@ begin
                 $display("      Your    : %4d ", _your[row][col]);
                 $display("      Frame Z : %4d ", _frame_Z[row][col]);
                 display_full_seperator;
+                dump_input_frames_to_csv;
+                dump_output_frames_to_csv;
                 repeat(5) @(negedge clk);
                 $finish;
             end
